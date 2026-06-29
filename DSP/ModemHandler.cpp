@@ -1,28 +1,28 @@
-#include "BaseDemodHandler.h"
+#include "ModemHandler.h"
 #include "Logger.h"
 
-BaseDemodHandler::BaseDemodHandler(double stationOffsetHz, QObject* parent)
+ModemHandler::ModemHandler(double stationOffsetHz, QObject* parent)
     : QObject(parent)
     , stationOffsetHz_(stationOffsetHz)
 {}
 
-void BaseDemodHandler::setParam(const QString& name, double value) {
+void ModemHandler::setParam(const QString& name, double value) {
     std::lock_guard lock(paramMutex_);
     params_[name] = value;
     pendingParams_.emplace_back(name, value);
 }
 
-double BaseDemodHandler::param(const QString& name) const {
+double ModemHandler::param(const QString& name) const {
     std::lock_guard lock(paramMutex_);
     auto it = params_.find(name);
     return it != params_.end() ? it->second : 0.0;
 }
 
-void BaseDemodHandler::setOffset(double hz) {
+void ModemHandler::setOffset(double hz) {
     pendingOffset_.store(hz);
 }
 
-void BaseDemodHandler::onStreamStarted(double sampleRateHz) {
+void ModemHandler::onStreamStarted(double sampleRateHz) {
     std::map<QString, double> paramsCopy;
     {
         std::lock_guard lock(paramMutex_);
@@ -32,19 +32,19 @@ void BaseDemodHandler::onStreamStarted(double sampleRateHz) {
     try {
         dem_ = createDemodulator(sampleRateHz, stationOffsetHz_, paramsCopy);
         LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
-                std::string(handlerName()) + ": ready — audio SR="
+                std::string(modemName()) + ": ready — audio SR="
                 + std::to_string(static_cast<int>(dem_->audioSampleRate())) + " Hz");
     } catch (const std::exception& ex) {
-        LOG_ERROR(std::string(handlerName()) + " init failed: " + ex.what());
+        LOG_ERROR(std::string(modemName()) + " init failed: " + ex.what());
         dem_.reset();
     }
 }
 
-void BaseDemodHandler::onStreamStopped() {
+void ModemHandler::onStreamStopped() {
     dem_.reset();
 }
 
-void BaseDemodHandler::processBlock(const float* iq, int count, double sampleRateHz) {
+void ModemHandler::processBlock(const float* iq, int count, double sampleRateHz) {
     // Lazy-init: handler may have been added mid-stream via pipeline_->addHandler(),
     // in which case onStreamStarted() was never called for it.
     if (!dem_) {

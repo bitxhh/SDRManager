@@ -4,7 +4,7 @@
 #include "../Core/Pipeline.h"
 #include "../Core/RecordingSettings.h"
 #include "../DSP/FftHandler.h"
-#include "../DSP/BaseDemodHandler.h"
+#include "../DSP/ModemHandler.h"
 #include "../DSP/RawFileHandler.h"
 #include "../DSP/BandpassHandler.h"
 #include "../DSP/IqCombiner.h"
@@ -82,7 +82,7 @@ public:
     void addExtraHandler(IPipelineHandler* h);
     void removeExtraHandler(IPipelineHandler* h);
 
-    [[nodiscard]] BaseDemodHandler* demodHandler() const { return demodHandler_; }
+    [[nodiscard]] ModemHandler* demodHandler() const { return demodHandler_; }
     [[nodiscard]] double ifRms() const;
 
     // Межканальная фазовая калибровка. calibratePhase() снимает текущую сырую
@@ -125,7 +125,7 @@ private:
     Pipeline*     combinedPipeline_{nullptr};
 
     FftHandler*       fftHandler_{nullptr};
-    BaseDemodHandler* demodHandler_{nullptr};
+    ModemHandler*     demodHandler_{nullptr};
     FmAudioOutput*    audioOut_{nullptr};
     float             volume_{0.8f};
 

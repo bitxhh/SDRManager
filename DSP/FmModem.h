@@ -1,28 +1,28 @@
 #pragma once
 
-#include "BaseDemodulator.h"
+#include "ChannelModem.h"
 
 // ---------------------------------------------------------------------------
-// FmDemodulator — WBFM demodulator built on BaseDemodulator.
+// FmModem — WBFM demodulator built on ChannelModem.
 //
 // FM-specific stages (demodulateIF):
 //   FM discriminator (atan2 of conjugate product)  →  de-emphasis IIR
 //
 // setBandwidth() redesigns FIR1 (pre-decimation channel filter).
 // ---------------------------------------------------------------------------
-class FmDemodulator : public BaseDemodulator {
+class FmModem : public ChannelModem {
 public:
-    explicit FmDemodulator(double inputSampleRateHz,
-                           double stationOffsetHz,
-                           double deemphTauSec    = 50e-6,
-                           double bandwidthHz     = 150'000.0);
+    explicit FmModem(double inputSampleRateHz,
+                     double stationOffsetHz,
+                     double deemphTauSec    = 50e-6,
+                     double bandwidthHz     = 150'000.0);
 
     void setBandwidth(double bandwidthHz);
 
 protected:
     double demodulateIF(std::complex<double> ifSample, double ifPower) override;
     void resetDemodState() override;
-    const char* demodName() const override { return "FmDemodulator"; }
+    const char* modemName() const override { return "FmModem"; }
 
 private:
     double deemphTau_;

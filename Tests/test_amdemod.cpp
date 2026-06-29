@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include "AmDemodulator.h"
+#include "AmModem.h"
 #include "DspUtils.h"
 
 #include <cmath>
@@ -44,7 +44,7 @@ static double dftAmplitude(const QVector<float>& signal, double fs, double freq)
 }
 
 // Run demodulator over multiple blocks.
-static QVector<float> runDemod(AmDemodulator& dem,
+static QVector<float> runDemod(AmModem& dem,
                                const QVector<float>& iq,
                                int blockSize = 16384)
 {
@@ -67,7 +67,7 @@ TEST_CASE("AM demodulator recovers 1 kHz tone from 80% modulation", "[am][demod]
     constexpr double kCarrier   = 50'000.0;   // carrier at +50 kHz from LO
     constexpr int    kBlocks    = 10;
 
-    AmDemodulator dem(kSR, kCarrier, 5'000.0);
+    AmModem dem(kSR, kCarrier, 5'000.0);
 
     const auto iq = makeAmSignal(kSR, kBlocks * 16384, kAmFreq, kCarrier, 0.8);
     const auto audio = runDemod(dem, iq);
@@ -97,7 +97,7 @@ TEST_CASE("AM demodulator recovers 1 kHz tone from 80% modulation", "[am][demod]
 // ─────────────────────────────────────────────────────────────────────────────
 TEST_CASE("AM: audio SR is ~50 kHz for standard input rates", "[am][chain]") {
     for (double sr : {2'500'000.0, 4'000'000.0, 8'000'000.0, 10'000'000.0}) {
-        AmDemodulator dem(sr, 0.0, 5'000.0);
+        AmModem dem(sr, 0.0, 5'000.0);
         INFO("Input SR: " << sr << "  Audio SR: " << dem.audioSampleRate());
         CHECK_THAT(dem.audioSampleRate(), Catch::Matchers::WithinAbs(50'000.0, 5'000.0));
     }
@@ -111,7 +111,7 @@ TEST_CASE("AM: audio sample count matches D1*D2 decimation", "[am][chain]") {
     constexpr int    kBlocks = 4;
     constexpr int    kN      = kBlocks * 16384;
 
-    AmDemodulator dem(kSR, 50'000.0, 5'000.0);
+    AmModem dem(kSR, 50'000.0, 5'000.0);
     const auto iq    = makeAmSignal(kSR, kN, 1'000.0, 50'000.0);
     const auto audio = runDemod(dem, iq);
 
@@ -141,7 +141,7 @@ TEST_CASE("AM: carrier DC removed, output has zero mean", "[am][dc]") {
     constexpr double kSR     = 4'000'000.0;
     constexpr int    kBlocks = 10;
 
-    AmDemodulator dem(kSR, 50'000.0, 5'000.0);
+    AmModem dem(kSR, 50'000.0, 5'000.0);
     const auto iq    = makeAmSignal(kSR, kBlocks * 16384, 1'000.0, 50'000.0, 0.8);
     const auto audio = runDemod(dem, iq);
 

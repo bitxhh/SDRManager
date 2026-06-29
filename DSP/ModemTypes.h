@@ -4,7 +4,7 @@
 #include <QVector>
 #include <variant>
 
-namespace demod {
+namespace modem {
 
 // ---------------------------------------------------------------------------
 // Parameter descriptors — metadata for UI auto-build.
@@ -32,4 +32,4 @@ struct ComboParam {
 
 using ParamDesc = std::variant<SpinParam, ComboParam>;
 
-} // namespace demod
+} // namespace modem

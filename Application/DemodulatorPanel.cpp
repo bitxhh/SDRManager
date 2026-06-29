@@ -4,8 +4,8 @@
 #include "../Core/FileNaming.h"
 #include "../DSP/AudioFileHandler.h"
 #include "../DSP/BandpassHandler.h"
-#include "../DSP/BaseDemodHandler.h"
-#include "../DSP/DemodRegistry.h"
+#include "../DSP/ModemHandler.h"
+#include "../DSP/ModemRegistry.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -326,14 +326,14 @@ void DemodulatorPanel::updateAudioRecording() {
     };
 
     audioHandler_ = new AudioFileHandler(builder, this);
-    connect(demodHandler_, &BaseDemodHandler::audioReady,
+    connect(demodHandler_, &ModemHandler::audioReady,
             audioHandler_, &AudioFileHandler::push, Qt::QueuedConnection);
 }
 
 void DemodulatorPanel::teardownAudioRecording() {
     if (!audioHandler_) return;
     if (demodHandler_)
-        disconnect(demodHandler_, &BaseDemodHandler::audioReady,
+        disconnect(demodHandler_, &ModemHandler::audioReady,
                    audioHandler_, &AudioFileHandler::push);
     audioHandler_->close();
     delete audioHandler_;
@@ -349,7 +349,7 @@ void DemodulatorPanel::applyDemod() {
     const QString modeStr = (mode == 1) ? QStringLiteral("FM") : QStringLiteral("AM");
     const double offsetHz = (vfoSpin_->value() - centerFreqMHz_) * 1e6;
 
-    demodHandler_ = DemodRegistry::instance().create(modeStr, offsetHz, this);
+    demodHandler_ = ModemRegistry::instance().create(modeStr, offsetHz, this);
     if (!demodHandler_) return;
 
     // Push current param values into the handler before it's added to pipeline.
@@ -371,7 +371,7 @@ void DemodulatorPanel::applyDemod() {
                 statusLabel_->setText(msg);
             });
 
-    connect(demodHandler_, &BaseDemodHandler::audioReady,
+    connect(demodHandler_, &ModemHandler::audioReady,
             audioOut_,     &FmAudioOutput::push, Qt::QueuedConnection);
 
     ctrl_->addExtraHandler(demodHandler_);

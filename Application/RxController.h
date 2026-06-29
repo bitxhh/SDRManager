@@ -3,7 +3,7 @@
 #include "../Core/ChannelDescriptor.h"
 #include "../Core/Pipeline.h"
 #include "../DSP/FftHandler.h"
-#include "../DSP/BaseDemodHandler.h"
+#include "../DSP/ModemHandler.h"
 #include "../DSP/RawFileHandler.h"
 #include "../DSP/BandpassHandler.h"
 #include "../Audio/FmAudioOutput.h"
@@ -70,7 +70,7 @@ public:
     void removeExtraHandler(IPipelineHandler* h);
 
     // ── Metrics ──────────────────────────────────────────────────────────────
-    [[nodiscard]] BaseDemodHandler* demodHandler() const { return demodHandler_; }
+    [[nodiscard]] ModemHandler* demodHandler() const { return demodHandler_; }
     [[nodiscard]] double ifRms() const;
 
 signals:
@@ -93,7 +93,7 @@ private:
     QThread*          streamThread_{nullptr};
     RxWorker*     streamWorker_{nullptr};
     FftHandler*       fftHandler_{nullptr};
-    BaseDemodHandler* demodHandler_{nullptr};
+    ModemHandler*     demodHandler_{nullptr};
     FmAudioOutput*    audioOut_{nullptr};
     float             volume_{0.8f};
 

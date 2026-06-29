@@ -1,6 +1,6 @@
 #include "CombinedRxController.h"
 #include "../Core/IDevice.h"
-#include "../DSP/DemodRegistry.h"
+#include "../DSP/ModemRegistry.h"
 #include "Logger.h"
 
 CombinedRxController::CombinedRxController(IDevice* device, QThreadPool* pool,
@@ -128,7 +128,7 @@ void CombinedRxController::setDemodMode(const QString& mode, double offsetHz) {
     teardownDemod();
     if (mode.isEmpty() || mode == "Off") return;
 
-    demodHandler_ = DemodRegistry::instance().create(mode, offsetHz, this);
+    demodHandler_ = ModemRegistry::instance().create(mode, offsetHz, this);
     if (!demodHandler_) return;
 
     delete audioOut_;
@@ -136,7 +136,7 @@ void CombinedRxController::setDemodMode(const QString& mode, double offsetHz) {
     audioOut_->setVolume(volume_);
     connect(audioOut_, &FmAudioOutput::statusChanged,
             this, &CombinedRxController::demodStatus);
-    connect(demodHandler_, &BaseDemodHandler::audioReady,
+    connect(demodHandler_, &ModemHandler::audioReady,
             audioOut_, &FmAudioOutput::push, Qt::QueuedConnection);
 
     if (combinedPipeline_)
@@ -180,7 +180,7 @@ void CombinedRxController::addExtraHandler(IPipelineHandler* h) {
     combinedPipeline_->addHandler(h);
     extraHandlers_.push_back(h);
     // Handlers added mid-stream need their onStreamStarted fired explicitly
-    // (Pipeline::notifyStarted has already run). BaseDemodHandler handles this
+    // (Pipeline::notifyStarted has already run). ModemHandler handles this
     // lazily in processBlock, but BandpassHandler and RawFileHandler rely on
     // onStreamStarted to open their output files.
     if (device_ && !workers_.empty())

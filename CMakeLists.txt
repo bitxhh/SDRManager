@@ -44,7 +44,7 @@ set(AVX2_FLAGS -mavx2 -mfma)
 # Directory layout:
 #   Application/  — UI layer (Qt widgets only, no direct hardware access)
 #   Hardware/     — LimeSDR: Device, LimeManager, RxWorker, TxWorker, DeviceController
-#   DSP/          — Signal processing: FftProcessor, BandpassExporter, FmDemodulator
+#   DSP/          — Signal processing: FftProcessor, BandpassExporter, FmModem
 #   Audio/        — Audio output: FmAudioOutput (QAudioSink wrapper + resampler)
 #   Core/         — Shared utilities: Logger, LimeException
 add_executable(Stand
@@ -101,21 +101,23 @@ add_executable(Stand
         DSP/BandpassHandler.h
         DSP/DspUtils.cpp
         DSP/DspUtils.h
-        DSP/BaseDemodulator.cpp
-        DSP/BaseDemodulator.h
-        DSP/BaseDemodHandler.cpp
-        DSP/BaseDemodHandler.h
-        DSP/FmDemodulator.cpp
-        DSP/FmDemodulator.h
-        DSP/FmDemodHandler.cpp
-        DSP/FmDemodHandler.h
-        DSP/AmDemodulator.cpp
-        DSP/AmDemodulator.h
-        DSP/AmDemodHandler.cpp
-        DSP/AmDemodHandler.h
-        DSP/DemodTypes.h
-        DSP/DemodRegistry.cpp
-        DSP/DemodRegistry.h
+        DSP/IModem.h
+        DSP/IModulator.h
+        DSP/ModemTypes.h
+        DSP/ChannelModem.cpp
+        DSP/ChannelModem.h
+        DSP/ModemHandler.cpp
+        DSP/ModemHandler.h
+        DSP/FmModem.cpp
+        DSP/FmModem.h
+        DSP/FmModemHandler.cpp
+        DSP/FmModemHandler.h
+        DSP/AmModem.cpp
+        DSP/AmModem.h
+        DSP/AmModemHandler.cpp
+        DSP/AmModemHandler.h
+        DSP/ModemRegistry.cpp
+        DSP/ModemRegistry.h
         DSP/RawFileHandler.cpp
         DSP/RawFileHandler.h
         DSP/AudioFileHandler.cpp
@@ -210,9 +212,9 @@ add_executable(StandTests
         Tests/test_iqcombiner.cpp
 
         DSP/DspUtils.cpp
-        DSP/BaseDemodulator.cpp
-        DSP/FmDemodulator.cpp
-        DSP/AmDemodulator.cpp
+        DSP/ChannelModem.cpp
+        DSP/FmModem.cpp
+        DSP/AmModem.cpp
         DSP/FftProcessor.cpp
         DSP/IqCombiner.cpp
         Core/Pipeline.cpp

@@ -30,7 +30,7 @@ struct BlockMeta {
 //   • onStreamStarted() / onStreamStopped() — хуки жизненного цикла,
 //     можно не переопределять.
 //
-// Реализации: FftHandler, FmDemodHandler, RawFileHandler, BandpassHandler,
+// Реализации: FftHandler, FmModemHandler, RawFileHandler, BandpassHandler,
 //             ModClassHandler (будущий AI-классификатор).
 // ---------------------------------------------------------------------------
 class IPipelineHandler {

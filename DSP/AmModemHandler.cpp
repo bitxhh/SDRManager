@@ -1,17 +1,17 @@
-#include "AmDemodHandler.h"
-#include "AmDemodulator.h"
+#include "AmModemHandler.h"
+#include "AmModem.h"
 
-AmDemodHandler::AmDemodHandler(double stationOffsetHz,
+AmModemHandler::AmModemHandler(double stationOffsetHz,
                                double bandwidthHz,
                                QObject* parent)
-    : BaseDemodHandler(stationOffsetHz, parent)
+    : ModemHandler(stationOffsetHz, parent)
 {
     setParam(QStringLiteral("Bandwidth"), bandwidthHz);
 }
 
-std::vector<demod::ParamDesc> AmDemodHandler::paramDescriptors() const {
+std::vector<modem::ParamDesc> AmModemHandler::paramDescriptors() const {
     return {
-        demod::SpinParam{
+        modem::SpinParam{
             QStringLiteral("Bandwidth"),
             1, 20, 5,
             QStringLiteral(" kHz"), 1, 1000.0
@@ -19,16 +19,16 @@ std::vector<demod::ParamDesc> AmDemodHandler::paramDescriptors() const {
     };
 }
 
-std::unique_ptr<BaseDemodulator>
-AmDemodHandler::createDemodulator(double sampleRateHz, double offsetHz,
+std::unique_ptr<ChannelModem>
+AmModemHandler::createDemodulator(double sampleRateHz, double offsetHz,
                                   const std::map<QString, double>& params) {
     auto it = params.find(QStringLiteral("Bandwidth"));
     const double bw = (it != params.end()) ? it->second : 5'000.0;
-    return std::make_unique<AmDemodulator>(sampleRateHz, offsetHz, bw);
+    return std::make_unique<AmModem>(sampleRateHz, offsetHz, bw);
 }
 
-void AmDemodHandler::applyParam(BaseDemodulator& dem,
+void AmModemHandler::applyParam(ChannelModem& dem,
                                 const QString& name, double value) {
     if (name == QLatin1String("Bandwidth"))
-        static_cast<AmDemodulator&>(dem).setBandwidth(value);
+        static_cast<AmModem&>(dem).setBandwidth(value);
 }

@@ -99,7 +99,7 @@ Written via `BandpassExporter`; output sample rate = inputSR / decimation factor
 
 ## AudioFileHandler — WAV recording
 
-Receives `audioReady(QVector<float>, double sampleRateHz)` from `BaseDemodHandler`.
+Receives `audioReady(QVector<float>, double sampleRateHz)` from `ModemHandler`.
 Writes RIFF/WAVE IEEE-float PCM mono. Sample rate is locked at first block; the WAV
 header is patched (seek back) on `close()` with the final sample count.
 

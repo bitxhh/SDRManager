@@ -11,7 +11,7 @@ class QDoubleSpinBox;
 class QSlider;
 class QLabel;
 class QPushButton;
-class BaseDemodHandler;
+class ModemHandler;
 class FmAudioOutput;
 class CombinedRxController;
 class BandpassHandler;
@@ -79,7 +79,7 @@ private:
     double sampleRateHz_{0.0};
     CombinedRxController* ctrl_{nullptr};
 
-    BaseDemodHandler* demodHandler_{nullptr};
+    ModemHandler* demodHandler_{nullptr};
     FmAudioOutput* audioOut_{nullptr};
     float volume_{0.8f};
 

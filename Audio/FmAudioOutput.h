@@ -9,7 +9,7 @@
 #include <cstdint>
 
 // ---------------------------------------------------------------------------
-// FmAudioOutput — receives float32 mono audio from FmDemodulator, resamples
+// FmAudioOutput — receives float32 mono audio from FmModem, resamples
 // to the device's preferred format and writes to QAudioSink (WASAPI).
 //
 // Format strategy:

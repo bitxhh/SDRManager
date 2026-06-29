@@ -18,7 +18,7 @@ inline constexpr int kDefaultFir1Taps = 255;
 inline constexpr int kDefaultFir2Taps = 255;
 
 // ---------------------------------------------------------------------------
-// BaseDemodulator — common DSP pipeline for all demodulators.
+// ChannelModem — common DSP pipeline for all demodulators.
 //
 //   float32 I/Q  →  DC blocker  →  NCO shift  →  FIR1 LPF (complex)
 //              →  decimate D1  →  IF @ ~500 kHz
@@ -33,9 +33,9 @@ inline constexpr int kDefaultFir2Taps = 255;
 //
 // Thread safety: call all methods from the SAME thread (RxWorker thread).
 // ---------------------------------------------------------------------------
-class BaseDemodulator {
+class ChannelModem {
 public:
-    virtual ~BaseDemodulator() = default;
+    virtual ~ChannelModem() = default;
 
     [[nodiscard]] QVector<float> pushBlock(const float* iq, int count);
     void setOffset(double offsetHz);
@@ -47,11 +47,11 @@ public:
     [[nodiscard]] double ifRms()           const { return ifRmsOut_; }
 
 protected:
-    BaseDemodulator(double inputSR, double stationOffsetHz,
-                    double fir1CutoffHz, double fir2CutoffHz,
-                    double minIfHz,
-                    int fir1Taps = kDefaultFir1Taps,
-                    int fir2Taps = kDefaultFir2Taps);
+    ChannelModem(double inputSR, double stationOffsetHz,
+                 double fir1CutoffHz, double fir2CutoffHz,
+                 double minIfHz,
+                 int fir1Taps = kDefaultFir1Taps,
+                 int fir2Taps = kDefaultFir2Taps);
 
     // Subclass implements: demodulate one IF-rate sample → audio sample.
     // ifSample: complex signal after FIR1 + D1 decimation.
@@ -63,7 +63,7 @@ protected:
     virtual void resetDemodState() {}
 
     // Subclass name for log messages.
-    virtual const char* demodName() const = 0;
+    virtual const char* modemName() const = 0;
 
     // Subclass tools — redesign filters on the fly.
     void redesignFir1(double cutoffHz);

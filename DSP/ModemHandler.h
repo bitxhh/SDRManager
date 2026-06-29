@@ -1,8 +1,9 @@
 #pragma once
 
 #include "../Core/IPipelineHandler.h"
-#include "BaseDemodulator.h"
-#include "DemodTypes.h"
+#include "IModem.h"
+#include "ChannelModem.h"
+#include "ModemTypes.h"
 
 #include <QObject>
 #include <QVector>
@@ -13,22 +14,26 @@
 #include <vector>
 
 // ---------------------------------------------------------------------------
-// BaseDemodHandler — common IPipelineHandler wrapper for all demodulators.
+// ModemHandler — common IPipelineHandler + IModem wrapper for all modems.
+//
+// A "modem" is both:
+//   IPipelineHandler — RX runtime (owns a ChannelModem, drives blocks);
+//   IModem           — scheme identity (modemName, paramDescriptors, makeModulator).
 //
 // Manages:  generic named parameters (thread-safe), lazy-init,
 //           audioReady signal, ifRms proxy.
 //
 // Subclasses implement:
 //   paramDescriptors()  — UI metadata (spin/combo definitions)
-//   createDemodulator() — build concrete demodulator from param map
-//   applyParam()        — live-update a running demodulator
+//   createDemodulator() — build concrete ChannelModem from param map
+//   applyParam()        — live-update a running ChannelModem
 // ---------------------------------------------------------------------------
-class BaseDemodHandler : public QObject, public IPipelineHandler {
+class ModemHandler : public QObject, public IPipelineHandler, public IModem {
     Q_OBJECT
 
 public:
-    // Parameter descriptors for UI auto-build.
-    virtual std::vector<demod::ParamDesc> paramDescriptors() const { return {}; }
+    // Parameter descriptors for UI auto-build (IModem).
+    std::vector<modem::ParamDesc> paramDescriptors() const override { return {}; }
 
     // Set parameter by name. Thread-safe (UI thread → worker thread).
     void setParam(const QString& name, double value);
@@ -53,22 +58,23 @@ signals:
     void audioReady(QVector<float> samples, double sampleRateHz);
 
 protected:
-    explicit BaseDemodHandler(double stationOffsetHz, QObject* parent = nullptr);
+    explicit ModemHandler(double stationOffsetHz, QObject* parent = nullptr);
 
     // Subclass creates its concrete demodulator using the param snapshot.
-    virtual std::unique_ptr<BaseDemodulator>
+    virtual std::unique_ptr<ChannelModem>
     createDemodulator(double sampleRateHz, double offsetHz,
                       const std::map<QString, double>& params) = 0;
 
     // Apply a single param to a running demodulator.
     // Override to handle live parameter updates.
-    virtual void applyParam(BaseDemodulator& dem,
+    virtual void applyParam(ChannelModem& dem,
                             const QString& name, double value) {}
 
-    virtual const char* handlerName() const = 0;
+    // Scheme name (IModem). Also used in log strings.
+    const char* modemName() const override = 0;
 
     double stationOffsetHz_;
-    std::unique_ptr<BaseDemodulator> dem_;
+    std::unique_ptr<ChannelModem> dem_;
 
 private:
     mutable std::mutex paramMutex_;

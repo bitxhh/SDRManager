@@ -1,6 +1,6 @@
 #include "RxController.h"
 #include "../Core/IDevice.h"
-#include "../DSP/DemodRegistry.h"
+#include "../DSP/ModemRegistry.h"
 #include "Logger.h"
 
 RxController::RxController(IDevice* device, ChannelDescriptor channel,
@@ -89,7 +89,7 @@ void RxController::setDemodMode(const QString& mode, double offsetHz) {
     teardownDemod();
     if (mode.isEmpty() || mode == "Off") return;
 
-    demodHandler_ = DemodRegistry::instance().create(mode, offsetHz, this);
+    demodHandler_ = ModemRegistry::instance().create(mode, offsetHz, this);
     if (!demodHandler_) return;
 
     delete audioOut_;
@@ -98,7 +98,7 @@ void RxController::setDemodMode(const QString& mode, double offsetHz) {
     connect(audioOut_, &FmAudioOutput::statusChanged,
             this, &RxController::demodStatus);
 
-    connect(demodHandler_, &BaseDemodHandler::audioReady,
+    connect(demodHandler_, &ModemHandler::audioReady,
             audioOut_, &FmAudioOutput::push, Qt::QueuedConnection);
 
     if (pipeline_)

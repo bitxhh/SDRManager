@@ -18,7 +18,7 @@ main.cpp
               │                 ├── FftHandler              → spectrum display
               │                 ├── RawFileHandler          → combined .cf32 I/Q dump
               │                 └── [via addExtraHandler, per DemodulatorPanel]
-              │                       ├── [Fm|Am]DemodHandler  → audio demodulator
+              │                       ├── [Fm|Am]ModemHandler  → audio demodulator
               │                       ├── BandpassHandler      → filtered .cf32
               │                       └── AudioFileHandler     → .wav recording
               │
@@ -57,14 +57,16 @@ Hardware/           LimeSDR implementation
 DSP/                Signal processing
   FftProcessor.h/.cpp        Stateless FFT (FFTW3 float32, AVX2+FMA, thread-local plan cache)
   FftHandler.h/.cpp          IPipelineHandler: throttled FFT + EMA smoothing
-  FmDemodulator.h/.cpp       Stateful WBFM demodulator (full DSP chain)
-  FmDemodHandler.h/.cpp      IPipelineHandler wrapper for FmDemodulator
-  AmDemodulator.h/.cpp       Stateful AM envelope demodulator
-  AmDemodHandler.h/.cpp      IPipelineHandler wrapper for AmDemodulator
-  BaseDemodulator.h/.cpp     Common base: DC blocker, NCO, FIR, decimate
-  BaseDemodHandler.h/.cpp    Common base: SNR/RMS metrics, param dispatch
-  DemodRegistry.h/.cpp       Factory registry: mode name → BaseDemodHandler*
-  DemodTypes.h               DemodMode enum + ModeInfo descriptor
+  IModem.h                   Modem contract: name, param descriptors, makeModulator()
+  IModulator.h               TX engine interface (audio → I/Q); no impls yet
+  FmModem.h/.cpp             Stateful WBFM demodulator engine (full DSP chain)
+  FmModemHandler.h/.cpp      IPipelineHandler + IModem wrapper for FmModem
+  AmModem.h/.cpp             Stateful AM envelope demodulator engine
+  AmModemHandler.h/.cpp      IPipelineHandler + IModem wrapper for AmModem
+  ChannelModem.h/.cpp        Common engine base: DC blocker, NCO, FIR, decimate
+  ModemHandler.h/.cpp        Common handler base (IModem): SNR/RMS metrics, param dispatch
+  ModemRegistry.h/.cpp       Factory registry: mode name → ModemHandler*
+  ModemTypes.h               modem::ParamDesc (SpinParam/ComboParam) for UI auto-build
   DspUtils.h                 Shared DSP primitives
   IqCombiner.h/.cpp          N-channel gain-normalised I/Q combiner (→ combined Pipeline)
   BandpassExporter.h/.cpp    NCO + FIR + decimate → float32 writer
@@ -96,7 +98,7 @@ Application/        UI (Qt widgets only — no DSP, no hardware calls)
 |--------|-----------|-----------------|
 | **Main (Qt event loop)** | All widgets, DeviceController, FmAudioOutput, TxController | UI updates, audio sink writes, device commands, prepareStream (LimeSuite quirk) |
 | **RxWorker (QThread)** — one per RX channel | RxWorker, PrePipeline dispatch | Blocking `readBlock()`, int16→float conversion, PrePipeline dispatch |
-| **QThreadPool (dspPool_)** | IPipelineHandler tasks in combined Pipeline | Parallel handler execution: FFT, DemodHandlers, RawFileHandler run concurrently per block |
+| **QThreadPool (dspPool_)** | IPipelineHandler tasks in combined Pipeline | Parallel handler execution: FFT, ModemHandlers, RawFileHandler run concurrently per block |
 | **TxWorker (QThread)** | TxWorker, ITxSource | `generateBlock()` + `writeBlock()` loop |
 
 Cross-thread signals: `Qt::QueuedConnection`. No shared mutable state between handlers.
@@ -159,7 +161,7 @@ struct BlockMeta {
 - Kept for `ClassifierController` integration and ChannelPanel compatibility
 
 **DemodulatorPanel** — per-demodulator UI slot (max 4):
-- Owns its own `BaseDemodHandler`, `FmAudioOutput`, `BandpassHandler`, `AudioFileHandler`
+- Owns its own `ModemHandler`, `FmAudioOutput`, `BandpassHandler`, `AudioFileHandler`
 - Attaches/detaches from `CombinedRxController` via `addExtraHandler`
 - Emits `vfoChanged` → `RadioMonitorPage` updates VFO band overlay on FFT plot
 
@@ -189,7 +191,7 @@ RxWorker CH1 → int16→float → PrePipeline CH1 → IqCombiner ──┴→ C
 
 ### I/Q → Audio (FM or AM) — parallel with FFT, per DemodulatorPanel
 ```
-Combined Pipeline → [pool task] [Fm|Am]DemodHandler → [Fm|Am]Demodulator
+Combined Pipeline → [pool task] [Fm|Am]ModemHandler → [Fm|Am]Modem
                                                                ↓
                                                    QVector<float> @ 50 kHz
                                                                ↓ emit audioReady()
@@ -255,6 +257,6 @@ TxController::startTx()
 
 ## Planned
 
-- SSB, NFM, CW demodulators (add via `BaseDemodHandler` + `DemodRegistry`, zero UI changes)
+- SSB, NFM, CW modems (add via `ModemHandler` + `ModemRegistry`, zero UI changes)
 - AI signal classifier (ClassifierHandler already wired, Python subprocess via ClassifierController)
 - ISyncController integration for dual-LimeSDR clock sync

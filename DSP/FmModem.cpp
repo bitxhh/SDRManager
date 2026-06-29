@@ -1,4 +1,4 @@
-#include "FmDemodulator.h"
+#include "FmModem.h"
 #include "Logger.h"
 
 #include <algorithm>
@@ -10,14 +10,14 @@ static constexpr double kFmMaxDev = 75'000.0;
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
-FmDemodulator::FmDemodulator(double inputSampleRateHz,
-                             double stationOffsetHz,
-                             double deemphTauSec,
-                             double bandwidthHz)
-    : BaseDemodulator(inputSampleRateHz, stationOffsetHz,
-                      bandwidthHz,       // FIR1 cutoff = user bandwidth
-                      15'000.0,          // FIR2 cutoff = 15 kHz audio
-                      400'000.0)         // min IF for WBFM
+FmModem::FmModem(double inputSampleRateHz,
+                 double stationOffsetHz,
+                 double deemphTauSec,
+                 double bandwidthHz)
+    : ChannelModem(inputSampleRateHz, stationOffsetHz,
+                   bandwidthHz,       // FIR1 cutoff = user bandwidth
+                   15'000.0,          // FIR2 cutoff = 15 kHz audio
+                   400'000.0)         // min IF for WBFM
     , deemphTau_(deemphTauSec)
 {
     bandwidth_ = std::clamp(bandwidthHz, 50'000.0, ifSR_ / 2.0 * 0.9);
@@ -26,7 +26,7 @@ FmDemodulator::FmDemodulator(double inputSampleRateHz,
     deemphP_   = std::exp(-1.0 / (deemphTau_ * ifSR_));
 
     LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
-            "FmDemodulator: inputSR=" + std::to_string(static_cast<int>(inputSR_))
+            "FmModem: inputSR=" + std::to_string(static_cast<int>(inputSR_))
             + " D1=" + std::to_string(D1_)
             + " IF=" + std::to_string(static_cast<int>(ifSR_)) + " Hz"
             + " audio=" + std::to_string(static_cast<int>(audioSR_)) + " Hz"
@@ -38,19 +38,19 @@ FmDemodulator::FmDemodulator(double inputSampleRateHz,
 // ---------------------------------------------------------------------------
 // setBandwidth — redesigns FIR1 (pre-decimation channel width)
 // ---------------------------------------------------------------------------
-void FmDemodulator::setBandwidth(double bandwidthHz) {
+void FmModem::setBandwidth(double bandwidthHz) {
     bandwidth_ = std::clamp(bandwidthHz, 50'000.0, ifSR_ / 2.0 * 0.9);
     redesignFir1(bandwidth_);
 
     LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
-            "FmDemodulator: bandwidth set to "
+            "FmModem: bandwidth set to "
             + std::to_string(static_cast<int>(bandwidth_)) + " Hz");
 }
 
 // ---------------------------------------------------------------------------
 // demodulateIF — FM discriminator + de-emphasis
 // ---------------------------------------------------------------------------
-double FmDemodulator::demodulateIF(std::complex<double> ifSample, double /*ifPower*/) {
+double FmModem::demodulateIF(std::complex<double> ifSample, double /*ifPower*/) {
     // FM discriminator: phase difference between consecutive IF samples
     const std::complex<double> prod = ifSample * std::conj(prevIF_);
     prevIF_ = ifSample;
@@ -65,7 +65,7 @@ double FmDemodulator::demodulateIF(std::complex<double> ifSample, double /*ifPow
 // ---------------------------------------------------------------------------
 // resetDemodState — called by base setOffset()
 // ---------------------------------------------------------------------------
-void FmDemodulator::resetDemodState() {
+void FmModem::resetDemodState() {
     prevIF_      = {1.0, 0.0};
     deemphState_ = 0.0;
 }

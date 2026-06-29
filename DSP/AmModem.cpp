@@ -1,4 +1,4 @@
-#include "AmDemodulator.h"
+#include "AmModem.h"
 #include "Logger.h"
 
 #include <algorithm>
@@ -8,13 +8,13 @@
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
-AmDemodulator::AmDemodulator(double inputSampleRateHz,
-                             double stationOffsetHz,
-                             double bandwidthHz)
-    : BaseDemodulator(inputSampleRateHz, stationOffsetHz,
-                      100'000.0,         // FIR1 cutoff = fixed 100 kHz (wide anti-alias)
-                      bandwidthHz,       // FIR2 cutoff = user bandwidth
-                      20'000.0)          // min IF for AM
+AmModem::AmModem(double inputSampleRateHz,
+                 double stationOffsetHz,
+                 double bandwidthHz)
+    : ChannelModem(inputSampleRateHz, stationOffsetHz,
+                   100'000.0,         // FIR1 cutoff = fixed 100 kHz (wide anti-alias)
+                   bandwidthHz,       // FIR2 cutoff = user bandwidth
+                   20'000.0)          // min IF for AM
 {
     bandwidth_ = std::clamp(bandwidthHz, 1'000.0, audioSR_ / 2.0 * 0.9);
 
@@ -22,7 +22,7 @@ AmDemodulator::AmDemodulator(double inputSampleRateHz,
     envDc_.setCutoff(20.0, ifSR_);
 
     LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
-            "AmDemodulator: inputSR=" + std::to_string(static_cast<int>(inputSR_))
+            "AmModem: inputSR=" + std::to_string(static_cast<int>(inputSR_))
             + " D1=" + std::to_string(D1_)
             + " IF=" + std::to_string(static_cast<int>(ifSR_)) + " Hz"
             + " audio=" + std::to_string(static_cast<int>(audioSR_)) + " Hz"
@@ -32,19 +32,19 @@ AmDemodulator::AmDemodulator(double inputSampleRateHz,
 // ---------------------------------------------------------------------------
 // setBandwidth — redesigns FIR2 (audio bandwidth)
 // ---------------------------------------------------------------------------
-void AmDemodulator::setBandwidth(double bandwidthHz) {
+void AmModem::setBandwidth(double bandwidthHz) {
     bandwidth_ = std::clamp(bandwidthHz, 1'000.0, audioSR_ / 2.0 * 0.9);
     redesignFir2(bandwidth_);
 
     LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
-            "AmDemodulator: bandwidth set to "
+            "AmModem: bandwidth set to "
             + std::to_string(static_cast<int>(bandwidth_)) + " Hz");
 }
 
 // ---------------------------------------------------------------------------
 // demodulateIF — envelope detection + DC removal
 // ---------------------------------------------------------------------------
-double AmDemodulator::demodulateIF(std::complex<double> /*ifSample*/, double ifPower) {
+double AmModem::demodulateIF(std::complex<double> /*ifSample*/, double ifPower) {
     const double envelope = std::sqrt(ifPower);
     return envDc_.process(envelope);
 }
@@ -52,6 +52,6 @@ double AmDemodulator::demodulateIF(std::complex<double> /*ifSample*/, double ifP
 // ---------------------------------------------------------------------------
 // resetDemodState — called by base setOffset()
 // ---------------------------------------------------------------------------
-void AmDemodulator::resetDemodState() {
+void AmModem::resetDemodState() {
     envDc_.reset();
 }

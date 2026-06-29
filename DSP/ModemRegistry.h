@@ -5,30 +5,30 @@
 #include <QMap>
 #include <functional>
 
-class BaseDemodHandler;
+class ModemHandler;
 class QObject;
 
 // ---------------------------------------------------------------------------
-// DemodRegistry — factory for demodulator handlers.
+// ModemRegistry — factory for modem handlers.
 //
 // Usage:
-//   auto& reg = DemodRegistry::instance();
+//   auto& reg = ModemRegistry::instance();
 //   QStringList modes = reg.names();          // → ["FM", "AM", ...]
 //   auto* handler = reg.create("FM", offsetHz, parent);
 //   auto descs = handler->paramDescriptors(); // → UI auto-builds widgets
 // ---------------------------------------------------------------------------
-class DemodRegistry {
+class ModemRegistry {
 public:
-    using Factory = std::function<BaseDemodHandler*(double offsetHz, QObject* parent)>;
+    using Factory = std::function<ModemHandler*(double offsetHz, QObject* parent)>;
 
-    static DemodRegistry& instance();
+    static ModemRegistry& instance();
 
     void add(const QString& name, Factory factory);
     [[nodiscard]] QStringList names() const;
-    BaseDemodHandler* create(const QString& name, double offsetHz,
-                             QObject* parent = nullptr) const;
+    ModemHandler* create(const QString& name, double offsetHz,
+                         QObject* parent = nullptr) const;
 
 private:
-    DemodRegistry();
+    ModemRegistry();
     QMap<QString, Factory> factories_;
 };

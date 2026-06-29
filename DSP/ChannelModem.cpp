@@ -1,4 +1,4 @@
-#include "BaseDemodulator.h"
+#include "ChannelModem.h"
 #include "Logger.h"
 
 #include <algorithm>
@@ -9,10 +9,10 @@
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
-BaseDemodulator::BaseDemodulator(double inputSR, double stationOffsetHz,
-                                 double fir1CutoffHz, double fir2CutoffHz,
-                                 double minIfHz,
-                                 int fir1Taps, int fir2Taps)
+ChannelModem::ChannelModem(double inputSR, double stationOffsetHz,
+                           double fir1CutoffHz, double fir2CutoffHz,
+                           double minIfHz,
+                           int fir1Taps, int fir2Taps)
     : inputSR_(inputSR)
     , stationOffset_(stationOffsetHz)
     , bandwidth_(0.0)
@@ -24,7 +24,7 @@ BaseDemodulator::BaseDemodulator(double inputSR, double stationOffsetHz,
 
     if (ifSR_ < minIfHz)
         throw std::invalid_argument(
-            std::string("Demodulator: IF rate ") + std::to_string(static_cast<int>(ifSR_))
+            std::string("Modem: IF rate ") + std::to_string(static_cast<int>(ifSR_))
             + " Hz is too low (need >= " + std::to_string(static_cast<int>(minIfHz))
             + " Hz). Raise the device sample rate.");
 
@@ -46,13 +46,13 @@ BaseDemodulator::BaseDemodulator(double inputSR, double stationOffsetHz,
 // ---------------------------------------------------------------------------
 // redesignFir1 / redesignFir2
 // ---------------------------------------------------------------------------
-void BaseDemodulator::redesignFir1(double cutoffHz) {
+void ChannelModem::redesignFir1(double cutoffHz) {
     fir1Coeffs_ = dsp::designLowpassFir(fir1Taps_, cutoffHz / inputSR_);
     std::fill(fir1Delay_.begin(), fir1Delay_.end(), std::complex<double>{0.0, 0.0});
     fir1Head_ = 0;
 }
 
-void BaseDemodulator::redesignFir2(double cutoffHz) {
+void ChannelModem::redesignFir2(double cutoffHz) {
     const double cutoff = std::min(cutoffHz, audioSR_ / 2.0 * 0.9);
     fir2Coeffs_ = dsp::designLowpassFir(fir2Taps_, cutoff / ifSR_);
     std::fill(fir2Delay_.begin(), fir2Delay_.end(), 0.0);
@@ -62,7 +62,7 @@ void BaseDemodulator::redesignFir2(double cutoffHz) {
 // ---------------------------------------------------------------------------
 // setOffset
 // ---------------------------------------------------------------------------
-void BaseDemodulator::setOffset(double offsetHz) {
+void ChannelModem::setOffset(double offsetHz) {
     stationOffset_ = offsetHz;
     nco_.setFrequency(stationOffset_, inputSR_);
 
@@ -79,19 +79,19 @@ void BaseDemodulator::setOffset(double offsetHz) {
     resetDemodState();
 
     LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
-            std::string(demodName()) + ": offset set to "
+            std::string(modemName()) + ": offset set to "
             + std::to_string(static_cast<int>(offsetHz)) + " Hz");
 }
 
 // ---------------------------------------------------------------------------
 // FIR1
 // ---------------------------------------------------------------------------
-void BaseDemodulator::fir1Push(std::complex<double> x) {
+void ChannelModem::fir1Push(std::complex<double> x) {
     fir1Delay_[fir1Head_] = x;
     fir1Head_ = (fir1Head_ + 1) % fir1Taps_;
 }
 
-std::complex<double> BaseDemodulator::fir1Compute() const {
+std::complex<double> ChannelModem::fir1Compute() const {
     std::complex<double> acc{0.0, 0.0};
     int idx = fir1Head_;
     for (int i = 0; i < fir1Taps_; ++i) {
@@ -104,7 +104,7 @@ std::complex<double> BaseDemodulator::fir1Compute() const {
 // ---------------------------------------------------------------------------
 // FIR2
 // ---------------------------------------------------------------------------
-double BaseDemodulator::fir2Step(double x) {
+double ChannelModem::fir2Step(double x) {
     fir2Delay_[fir2Head_] = x;
     fir2Head_ = (fir2Head_ + 1) % fir2Taps_;
 
@@ -120,7 +120,7 @@ double BaseDemodulator::fir2Step(double x) {
 // ---------------------------------------------------------------------------
 // Main processing
 // ---------------------------------------------------------------------------
-QVector<float> BaseDemodulator::pushBlock(const float* iq, int count) {
+QVector<float> ChannelModem::pushBlock(const float* iq, int count) {
     if (count < 1)
         return {};
 

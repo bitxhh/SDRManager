@@ -1,28 +1,28 @@
 #pragma once
 
-#include "BaseDemodHandler.h"
+#include "ModemHandler.h"
 
 // ---------------------------------------------------------------------------
-// AmDemodHandler — AM envelope handler.
+// AmModemHandler — AM envelope modem.
 // Params: Bandwidth (1–20 kHz).
 // ---------------------------------------------------------------------------
-class AmDemodHandler : public BaseDemodHandler {
+class AmModemHandler : public ModemHandler {
     Q_OBJECT
 
 public:
-    explicit AmDemodHandler(double stationOffsetHz = 0.0,
+    explicit AmModemHandler(double stationOffsetHz = 0.0,
                             double bandwidthHz     = 5'000.0,
                             QObject* parent        = nullptr);
 
-    std::vector<demod::ParamDesc> paramDescriptors() const override;
+    std::vector<modem::ParamDesc> paramDescriptors() const override;
 
 protected:
-    std::unique_ptr<BaseDemodulator>
+    std::unique_ptr<ChannelModem>
     createDemodulator(double sampleRateHz, double offsetHz,
                       const std::map<QString, double>& params) override;
 
-    void applyParam(BaseDemodulator& dem,
+    void applyParam(ChannelModem& dem,
                     const QString& name, double value) override;
 
-    const char* handlerName() const override { return "AmDemodHandler"; }
+    const char* modemName() const override { return "AmModemHandler"; }
 };

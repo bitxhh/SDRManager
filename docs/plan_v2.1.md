@@ -124,7 +124,7 @@ D и E идут перед C, т.к. логгер нужен для диагно
 
 **Действия.**
 1. Размер `dspPool_` — задать `QThread::idealThreadCount() - 1` (не меньше 4), зафиксировать в одном месте.
-2. Вывести `FmAudioOutput` из пайплайна: `BaseDemodHandler` пушит аудио в SPSC-очередь, отдельный поток (per-demod) вытаскивает и отдаёт в `QAudioSink`. Пайплайн освобождается немедленно.
+2. Вывести `FmAudioOutput` из пайплайна: `ModemHandler` пушит аудио в SPSC-очередь, отдельный поток (per-demod) вытаскивает и отдаёт в `QAudioSink`. Пайплайн освобождается немедленно.
 3. Опциональная группировка: несколько лёгких handlers (DC-blocker, envelope) в один `QtConcurrent::run`-таск — уменьшает overhead scheduling.
 4. Проверить, что recording-пути (WAV + .cf32) используют неблокирующую запись (отдельный writer-thread или `QFile` с буфером).
 

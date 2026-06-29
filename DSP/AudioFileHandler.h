@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 // AudioFileHandler — appends mono float32 audio to a WAV file.
 //
-// Listens to BaseDemodHandler::audioReady(QVector<float>, double) and writes
+// Listens to ModemHandler::audioReady(QVector<float>, double) and writes
 // incoming samples to a RIFF/WAVE IEEE-float PCM file. The output rate comes
 // from the first push() and is frozen for the remainder of the session; if a
 // subsequent block arrives at a different rate, it is discarded with a warning

@@ -1,29 +1,29 @@
 #pragma once
 
-#include "BaseDemodHandler.h"
+#include "ModemHandler.h"
 
 // ---------------------------------------------------------------------------
-// FmDemodHandler — WBFM handler.
+// FmModemHandler — WBFM modem.
 // Params: Bandwidth (50–250 kHz), De-emphasis (50/75 µs).
 // ---------------------------------------------------------------------------
-class FmDemodHandler : public BaseDemodHandler {
+class FmModemHandler : public ModemHandler {
     Q_OBJECT
 
 public:
-    explicit FmDemodHandler(double stationOffsetHz = 0.0,
+    explicit FmModemHandler(double stationOffsetHz = 0.0,
                             double deemphTauSec    = 75e-6,
                             double bandwidthHz     = 150'000.0,
                             QObject* parent        = nullptr);
 
-    std::vector<demod::ParamDesc> paramDescriptors() const override;
+    std::vector<modem::ParamDesc> paramDescriptors() const override;
 
 protected:
-    std::unique_ptr<BaseDemodulator>
+    std::unique_ptr<ChannelModem>
     createDemodulator(double sampleRateHz, double offsetHz,
                       const std::map<QString, double>& params) override;
 
-    void applyParam(BaseDemodulator& dem,
+    void applyParam(ChannelModem& dem,
                     const QString& name, double value) override;
 
-    const char* handlerName() const override { return "FmDemodHandler"; }
+    const char* modemName() const override { return "FmModemHandler"; }
 };

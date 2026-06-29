@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include "FmDemodulator.h"
+#include "FmModem.h"
 #include "DspUtils.h"
 
 #include <cmath>
@@ -50,7 +50,7 @@ static double dftAmplitude(const QVector<float>& signal, double fs, double freq)
 }
 
 // Accumulate multiple blocks into one audio vector.
-static QVector<float> runDemod(FmDemodulator& dem,
+static QVector<float> runDemod(FmModem& dem,
                                const QVector<float>& iq,
                                int blockSize = 16384)
 {
@@ -107,7 +107,7 @@ TEST_CASE("DC blocker removes constant I/Q offset", "[dcblock]") {
     // We measure IF power after 3 blocks: it should be much lower than if the
     // DC were not removed (which would saturate the discriminator).
     constexpr double kSR = 4'000'000.0;
-    FmDemodulator dem(kSR, 0.0, 75e-6, 100'000.0);
+    FmModem dem(kSR, 0.0, 75e-6, 100'000.0);
 
     constexpr int kBlockSize = 16384;
     // DC at nearly full scale
@@ -134,7 +134,7 @@ TEST_CASE("FM discriminator recovers 1 kHz tone from 75 kHz deviation", "[fm][di
     constexpr double kFmFreq  =     1'000.0;   // modulating tone
     constexpr double kFmDev   =    75'000.0;   // FM deviation (standard WBFM)
 
-    FmDemodulator dem(kSR, 0.0, 75e-6, 100'000.0);
+    FmModem dem(kSR, 0.0, 75e-6, 100'000.0);
 
     // 6 blocks → 6×16384 = 98304 input samples
     // Audio output: 98304 / (D1=16 × D2=5) = 1228 samples at ~50 kHz
@@ -171,7 +171,7 @@ TEST_CASE("Full chain: audio sample count matches D1*D2 decimation", "[fm][chain
     constexpr int    kBlocks = 4;
     constexpr int    kN      = kBlocks * 16384;
 
-    FmDemodulator dem(kSR, 0.0, 75e-6, 100'000.0);
+    FmModem dem(kSR, 0.0, 75e-6, 100'000.0);
     const auto iq    = makeFmSignal(kSR, kN, 1'000.0, 75'000.0);
     const auto audio = runDemod(dem, iq);
 
@@ -188,7 +188,7 @@ TEST_CASE("Full chain: audio sample count matches D1*D2 decimation", "[fm][chain
 
 TEST_CASE("Full chain: audio SR is ~50 kHz for all supported input rates", "[fm][chain]") {
     for (double sr : {2'500'000.0, 4'000'000.0, 8'000'000.0, 10'000'000.0}) {
-        FmDemodulator dem(sr, 0.0, 75e-6, 100'000.0);
+        FmModem dem(sr, 0.0, 75e-6, 100'000.0);
         INFO("Input SR: " << sr << "  Audio SR: " << dem.audioSampleRate());
         // Audio rate = ifSR / D2 = (SR/D1) / 10
         // For all supported rates, IF ≈ 500 kHz → audio ≈ 50 kHz
@@ -204,14 +204,14 @@ TEST_CASE("Out-of-band tone is attenuated by FIR1", "[fir][decimation]") {
     constexpr int    kN    = 6 * 16384;
 
     // In-band: 50 kHz (well within BW=100 kHz)
-    FmDemodulator dem_in(kSR, 0.0, 75e-6, 100'000.0);
+    FmModem dem_in(kSR, 0.0, 75e-6, 100'000.0);
     const auto iq_in    = makeFmSignal(kSR, kN, 1'000.0, 50'000.0);
     const auto audio_in = runDemod(dem_in, iq_in);
 
     // Out-of-band: we modulate at 1 kHz but with deviation 300 kHz
     // — most energy lands outside the 100 kHz BW and gets cut by FIR1.
     // We compare IF RMS: in-band should be much larger than out-of-band after filter.
-    FmDemodulator dem_out(kSR, 0.0, 75e-6, 100'000.0);
+    FmModem dem_out(kSR, 0.0, 75e-6, 100'000.0);
     const auto iq_out    = makeFmSignal(kSR, kN, 1'000.0, 300'000.0);
     runDemod(dem_out, iq_out);
 
