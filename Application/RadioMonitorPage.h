@@ -3,6 +3,7 @@
 #include "../Core/ChannelDescriptor.h"
 #include "../Core/DeviceSettings.h"
 #include "../Core/RecordingSettings.h"
+#include "../Core/WaterfallSettings.h"
 #include "../DSP/FftProcessor.h"
 
 #include <QWidget>
@@ -24,6 +25,8 @@ class IDevice;
 class DeviceController;
 class CombinedRxController;
 class DemodulatorPanel;
+class WaterfallHandler;
+class WaterfallView;
 
 // ---------------------------------------------------------------------------
 // RadioMonitorPage — единая вкладка радиомониторинга.
@@ -71,6 +74,16 @@ public:
     [[nodiscard]] QList<DemodPanelSettings> demodPanelStates() const;
     void restoreDemodPanels(const QList<DemodPanelSettings>& panels);
 
+    // Persistence — межканальная фазовая калибровка (deg). Значение живёт
+    // здесь, т.к. IqCombiner пересоздаётся на каждый startStream; страница
+    // пушит его в контроллер после каждого запуска стрима.
+    void setPhaseCalibrationDeg(double deg);
+    [[nodiscard]] double phaseCalibrationDeg() const { return phaseCalDeg_; }
+
+    // Persistence — автокалибровка фазы (чекбокс "Auto" в фазовой строке).
+    void setPhaseAutoCal(bool on);
+    [[nodiscard]] bool phaseAutoCal() const;
+
 signals:
     void streamStarted();
     void streamStopped();
@@ -87,16 +100,33 @@ private slots:
     void addDemodulator();
     void removeDemodulator(int slotIndex);
     void openRecordingSettings();
+    void openWaterfallSettings();
+
+    void onPhaseMetric(double rawDeg, double calibratedDeg, double coherence);
+    void calibratePhase();
+    void resetPhaseCalibration();
 
 private:
     void buildUi();
     void setupFftPlot();
     void updateFilterBands();
+
+    // ── Клик/драг перестройки VFO (общая логика спектра и водопада) ─────────
+    // Нажатие в полосе фильтра любого демода → драг его VFO; вне полос —
+    // перестройка первого активного демода (и драг его же, пока ЛКМ зажата).
+    void handleTunePress(double mhz);
+    void handleTuneDrag(double mhz);
+    void endTuneDrag();
+    void updateHoverCursor(QWidget* w, double mhz);
+    [[nodiscard]] int    demodIndexAtFreq(double mhz) const;
+    [[nodiscard]] int    firstActiveDemodIndex() const;
+    [[nodiscard]] double hitToleranceMHz() const;   // мин. половина зоны захвата (≈4 px)
     void pushRecordingContextToPanels(const QString& timestamp,
                                       const QString& combinedSource,
                                       double         centerFreqHz);
     void loadRecordingSettings();
     void saveRecordingSettings() const;
+    void applyWaterfallSettings();
 
     IDevice*          device_;
     DeviceController* controller_;
@@ -120,6 +150,10 @@ private:
     bool            plotUserZoomed_{false};
     bool            fftDirty_{false};
 
+    // ── VFO drag state (спектр + водопад) ────────────────────────────────────
+    int             dragPanelIndex_{-1};      // индекс в panels_, -1 = нет драга
+    double          dragGrabOffsetMHz_{0.0};  // mhz нажатия − VFO (без прыжка)
+
     // ── Demodulator panels ───────────────────────────────────────────────────
     QVBoxLayout*    panelsLayout_{nullptr};
     QVector<DemodulatorPanel*> panels_;
@@ -130,11 +164,26 @@ private:
     QPushButton*    stopBtn_{nullptr};
     QLabel*         statusLabel_{nullptr};
 
+    // ── Фазовая синхронизация каналов (виден при ≥2 RX) ─────────────────────
+    QWidget*        phaseRow_{nullptr};
+    QLabel*         phaseMetricLabel_{nullptr};   // live raw/residual/coherence
+    QLabel*         phaseCalLabel_{nullptr};      // применённая калибровка
+    QPushButton*    phaseCalBtn_{nullptr};
+    QPushButton*    phaseResetBtn_{nullptr};
+    QCheckBox*      phaseAutoCheck_{nullptr};    // автокалибровка при coh ≥ 0.9
+    double          phaseCalDeg_{0.0};
+
     // ── Recording ────────────────────────────────────────────────────────────
     QCheckBox*        recordCheck_{nullptr};
     QPushButton*      settingsBtn_{nullptr};
     RecordingSettings recordingSettings_{};
     QString           sessionTimestamp_;     // set at startStream, reused for mid-session panels
+
+    // ── Waterfall ────────────────────────────────────────────────────────────
+    WaterfallView*    waterfallView_{nullptr};
+    WaterfallHandler* waterfallHandler_{nullptr};
+    QPushButton*      waterfallBtn_{nullptr};
+    WaterfallSettings waterfallSettings_{};
 
     static constexpr int    kMaxDemods       = 4;
     static constexpr double kFreqMinMHz      =   30.0;

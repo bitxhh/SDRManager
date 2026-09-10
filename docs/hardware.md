@@ -1,6 +1,6 @@
-# LimeSDR Hardware Reference
+# Hardware Reference
 
-Configuration mirrors **ExtIO_LimeSDR** (known-good HDSDR plugin reference).
+LimeSDR configuration mirrors **ExtIO_LimeSDR** (known-good HDSDR plugin reference).
 
 ## Init sequence
 
@@ -36,14 +36,23 @@ TIA managed separately, fixed at `kDefaultTia = 3`.
 | TIA | 0, 3, 12 dB | G_TIA_RFE (1–3), fixed at 3 |
 | PGA | 0–31 dB | G_PGA_RBB (0–31) + RCC_CTL_PGA_RBB |
 
+## SoapySDR
+
+SoapySDR is optional and loaded at runtime via `QLibrary("SoapySDR")` (searched on `PATH`),
+with a fallback to `C:/Program Files/PothosSDR/bin/SoapySDR.dll`. If the library isn't found,
+SoapySDR devices are simply not listed; LimeSDR and I/Q file playback keep working.
+
 ## Logging
 
-Thread-safe singleton `Logger`. Output: `stand.log` next to executable.
-Debug builds also mirror to stderr.
+Thread-safe singleton `Logger`. Output: `%APPDATA%\SDRManager\sdrmanager.log`
+(fallback: `sdrmanager.log` in the working directory). Debug builds also mirror to stderr.
+Per-category filtering via `LoggerConfig` (Logger options dialog, persisted to `logger_settings.json`).
 
 ```cpp
 LOG_INFO("message");  LOG_WARN("message");
 LOG_ERROR("message"); LOG_DEBUG("message");
+LOG_PARAM(key, value);            // parameter change, filtered by key
+LOG_CAT(cat, level, msg);         // message in a filterable category
 ```
 
-Format: `[YYYY-MM-DD HH:MM:SS.mmm] [LEVEL] message`
+Format: `[YYYY-MM-DD HH:MM:SS.mmm] [LEVEL] [category] message` (category is optional)

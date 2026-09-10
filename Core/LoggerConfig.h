@@ -23,7 +23,7 @@ namespace LogCat {
 
 // Runtime filter for LOG_PARAM calls.  Disabled keys are dropped before
 // any string formatting, so the hot path is a single bool lookup.
-// Persisted to <AppData>/Stand/logger_settings.json.
+// Persisted to <AppData>/SDRManager/logger_settings.json.
 class LoggerConfig {
 public:
     static LoggerConfig& instance();

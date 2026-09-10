@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <QFileDialog>
 #include <QMenuBar>
 #include <QScrollArea>
 #include <QSize>
@@ -199,6 +200,13 @@ DeviceDetailWindow::DeviceDetailWindow(std::shared_ptr<IDevice> device, IDeviceM
     if (radioMonitorPage_ && !settings.demodPanels.isEmpty())
         radioMonitorPage_->restoreDemodPanels(settings.demodPanels);
 
+    // Межканальная фазовая калибровка — страница пушит её в комбайнер
+    // после каждого startStream.
+    if (radioMonitorPage_) {
+        radioMonitorPage_->setPhaseCalibrationDeg(settings.phaseCalDeg);
+        radioMonitorPage_->setPhaseAutoCal(settings.phaseAutoCal);
+    }
+
     // ── Plot render timer: max 20 fps, delegates to RadioMonitorPage ─────────
     plotTimer_ = new QTimer(this);
     plotTimer_->setInterval(50);
@@ -286,7 +294,11 @@ void DeviceDetailWindow::closeEvent(QCloseEvent* event) {
         if (txToneOffsetSpin_) s.txToneOffsetHz = txToneOffsetSpin_->value() * 1000.0;
         if (txAmplitudeSpin_)  s.txAmplitude    = txAmplitudeSpin_->value();
 
-        if (radioMonitorPage_) s.demodPanels = radioMonitorPage_->demodPanelStates();
+        if (radioMonitorPage_) {
+            s.demodPanels  = radioMonitorPage_->demodPanelStates();
+            s.phaseCalDeg  = radioMonitorPage_->phaseCalibrationDeg();
+            s.phaseAutoCal = radioMonitorPage_->phaseAutoCal();
+        }
 
         s.save(device->id());
     }
@@ -503,6 +515,14 @@ QWidget* DeviceDetailWindow::createDeviceControlPage() {
         def.demodPanels = radioMonitorPage_ ? radioMonitorPage_->demodPanelStates()
                                              : QList<DemodPanelSettings>{};
         def.save(device->id());
+
+        // Сброс фазовой калибровки и в живой странице: DeviceSettings::load
+        // выполняется только в конструкторе окна, иначе closeEvent пересохранил
+        // бы старое значение поверх сброшенного JSON.
+        if (radioMonitorPage_) {
+            radioMonitorPage_->setPhaseCalibrationDeg(0.0);
+            radioMonitorPage_->setPhaseAutoCal(DeviceSettings{}.phaseAutoCal);
+        }
 
         autoOpenDevice();
     });
@@ -954,7 +974,7 @@ DeviceSelectionWindow::DeviceSelectionWindow(IDeviceManager& manager,
     , manager(manager)
     , sessions_(sessions)
 {
-    setWindowTitle("Apex");
+    setWindowTitle("SDRManager");
     setMinimumWidth(320);
     auto* layout = new QVBoxLayout(this);
 
@@ -973,6 +993,22 @@ DeviceSelectionWindow::DeviceSelectionWindow(IDeviceManager& manager,
     deviceList = new QListWidget(this);
     layout->addWidget(topRow);
     layout->addWidget(deviceList);
+
+    auto* openFileBtn = new QPushButton(tr("Open I/Q file..."), this);
+    layout->addWidget(openFileBtn);
+    connect(openFileBtn, &QPushButton::clicked, this, [this]() {
+        const QString path = QFileDialog::getOpenFileName(
+            this, tr("Open I/Q recording"), QString(),
+            tr("I/Q recordings (*.cf32 *.cs16);;All files (*)"));
+        if (path.isEmpty()) return;
+        auto dev = this->manager.openFile(path);
+        if (!dev) {
+            QMessageBox::warning(this, tr("Open file"),
+                tr("This device manager does not support file playback."));
+            return;
+        }
+        openDevice(dev);
+    });
 
     connect(settingsBtn, &QPushButton::clicked, this, [this]() {
         LoggerOptionsDialog dlg(this);

@@ -12,7 +12,7 @@ external/
 *.obj
 
 # Runtime files
-stand.log
+sdrmanager.log
 *.raw
 *.log
 

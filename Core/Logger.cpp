@@ -17,12 +17,12 @@ Logger& Logger::instance() {
 Logger::Logger() {
     const char* appdata = std::getenv("APPDATA");
     if (appdata) {
-        std::filesystem::path dir = std::filesystem::path(appdata) / "Stand";
+        std::filesystem::path dir = std::filesystem::path(appdata) / "SDRManager";
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
-        setLogFile((dir / "stand.log").string());
+        setLogFile((dir / "sdrmanager.log").string());
     } else {
-        setLogFile("stand.log");
+        setLogFile("sdrmanager.log");
     }
 }
 

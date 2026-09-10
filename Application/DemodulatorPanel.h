@@ -4,6 +4,7 @@
 
 #include <QWidget>
 #include <QString>
+#include <QVector>
 
 class QComboBox;
 class QCheckBox;
@@ -11,6 +12,7 @@ class QDoubleSpinBox;
 class QSlider;
 class QLabel;
 class QPushButton;
+class QHBoxLayout;
 class ModemHandler;
 class FmAudioOutput;
 class CombinedRxController;
@@ -62,11 +64,27 @@ signals:
     void vfoChanged(int slotIndex, double freqMHz, double bwMHz);
 
 private:
+    // One control per ParamDesc reported by the active modem handler.
+    struct ParamControl {
+        QString         name;            // param key (matches ModemHandler)
+        double          scale{1.0};      // internal = UI value × scale (Hz)
+        QLabel*         label{nullptr};
+        QDoubleSpinBox* spin {nullptr};  // set for SpinParam
+        QComboBox*      combo{nullptr};  // set for ComboParam
+    };
+
     void onModeChanged(int index);
     void applyDemod();
     void teardownDemod();
     void buildUi();
     void emitVfoChanged();
+
+    // Rebuilds the parameter-widget row from the selected modem's descriptors.
+    void rebuildParamWidgets(const QString& mode);
+    // Internal (Hz-domain) value of one dynamic parameter control.
+    [[nodiscard]] double paramInternalValue(const ParamControl& pc) const;
+    // Internal Hz of the "Bandwidth" param, or 0 if the modem has none.
+    [[nodiscard]] double bandwidthHz() const;
 
     void updateFilteredRecording();
     void updateAudioRecording();
@@ -91,13 +109,11 @@ private:
     QLabel*         levelLabel_{nullptr};
     QPushButton*    removeButton_{nullptr};
 
-    QLabel*         fmBwLabel_{nullptr};
-    QDoubleSpinBox* fmBwSpin_{nullptr};
-    QLabel*         fmDeemphLabel_{nullptr};
-    QComboBox*      fmDeemphCombo_{nullptr};
-
-    QLabel*         amBwLabel_{nullptr};
-    QDoubleSpinBox* amBwSpin_{nullptr};
+    // ── Dynamic per-modem parameter widgets ─────────────────────────────────
+    // The row is rebuilt whenever the mode changes; no modem-specific UI code.
+    QWidget*              paramHost_  {nullptr};
+    QHBoxLayout*          paramLayout_{nullptr};
+    QVector<ParamControl> params_;
 
     // ── Recording ───────────────────────────────────────────────────────────
     QCheckBox*        filteredCheck_{nullptr};

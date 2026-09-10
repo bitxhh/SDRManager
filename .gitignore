@@ -39,11 +39,16 @@ cmake_install.cmake
 # --- LOGS ---
 *.log
 
-# --- PYTHON (если случайно появится) ---
+# --- PYTHON ---
 __pycache__/
 *.pyc
 
 !external/fftw/bin/*.dll
 !external/fftw/lib/*.dll.a
+
+# --- LOCAL-ONLY FILES (kept on disk, not tracked) ---
 TODO
 .claude/
+Legacy/
+listing.pdf
+make_listing.py

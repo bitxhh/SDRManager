@@ -635,6 +635,13 @@ void LimeDevice::setupStream(ChannelDescriptor ch) {
 
     lms_stream_t stream{};
     stream.channel             = ch.channelIndex;
+    if (!isTx) {
+        // LMS_ALIGN_CH_PHASE: LimeSuite aligns RX LO/NCO phases at stream start,
+        // resolving the random 0/180° quadrature-divider state between channels.
+        // Internally gated on both RX streams being set up (Streamer::UpdateThreads),
+        // so in single-channel mode this is a no-op.
+        stream.channel |= LMS_ALIGN_CH_PHASE;
+    }
     stream.fifoSize            = 1024 * 1024;
     stream.throughputVsLatency = 1.0f;
     stream.isTx                = isTx;

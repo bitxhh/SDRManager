@@ -1,8 +1,8 @@
 #include "Application/Application.h"
-#include "Hardware/LimeDeviceManager.h"
+#include "Hardware/CompositeDeviceManager.h"
 
 int main(int argc, char* argv[]) {
-    LimeDeviceManager manager;
+    CompositeDeviceManager manager;
     Application app(argc, argv, manager);
 
     return app.run();

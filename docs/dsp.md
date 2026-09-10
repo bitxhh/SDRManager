@@ -52,6 +52,130 @@ float I/Q → DC blocker (IIR HP) → NCO freq-shift
 | FIR2 cutoff | ~5 kHz | Matches AM bandwidth |
 | DC removal | IIR HP ~20 Hz | Removes carrier DC after sqrt() |
 
+## NFM demodulation chain
+
+Narrowband FM for voice channels (PMR/amateur ~12.5 kHz). Same discriminator as
+WBFM but a narrow channel FIR1, a 4 kHz voice FIR2, and **no de-emphasis**.
+
+```
+float I/Q → DC blocker (IIR HP) → NCO freq-shift
+          → FIR1 LPF (complex, 255 taps, fc = bandwidth/2)
+          → decimate D1 → IF @ 500 kHz
+          → FM discriminator (atan2 conjugate product), gain = ifSR / (2π·maxDev)
+          → FIR2 LPF (real, 255 taps, fc ≈ 4 kHz voice)
+          → decimate D2=10 → audio @ 50 kHz
+```
+
+Overrides `demodulateIF()` only (default `produceAudio` path).
+
+### NFM parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Channel bandwidth | 12.5 kHz default | Clamp 6 kHz – 0.9·ifSR; FIR1 fc = BW/2 |
+| Max deviation | ±5 kHz default | demodGain = ifSR / (2π·maxDev); clamp 1–15 kHz |
+| FIR2 cutoff | 4 kHz | Voice audio; no stereo/de-emphasis |
+| Min IF | 100 kHz | Throws below this device SR |
+
+## SSB demodulation chain (USB / LSB)
+
+One parameterized modem — `sideband = +1` (USB) or `−1` (LSB). Phasing (Hilbert)
+method. `produceAudio` is fully overridden: a complex channel-select decimator
+replaces the FIR1→FIR2 real path.
+
+```
+float I/Q → DC blocker → NCO freq-shift
+          → FIR1 LPF (complex, 100 kHz wide anti-alias)
+          → decimate D1 → IF @ 500 kHz
+          → channel FIR (complex, 255 taps, fc = bandwidth) + decimate → audio @ 50 kHz
+          → Hilbert(Q) (127-tap Type III)  vs  I delayed by (127−1)/2
+          → audio = 0.5·(I_delayed − sideband·Hilbert(Q))
+```
+
+USB uses `I − H{Q}`, LSB uses `I + H{Q}`; the 0.5 undoes the phasing 2× gain.
+The integer group delay of the Type III Hilbert is matched by a `DelayLine` on I.
+
+### SSB parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Bandwidth | 2.8 kHz default | Clamp 1 kHz – 0.9·(audioSR/2) |
+| Sideband | +1 USB / −1 LSB | Set at construction (`UsbModem`/`LsbModem`) |
+| Channel FIR | 255 taps @ IF | Sharp SSB skirt, fc = BW |
+| Hilbert FIR | 127 taps (odd, Type III) | Integer group delay = 63 |
+| Min IF | 20 kHz | |
+
+## CW demodulation chain (Morse)
+
+Narrow bandpass with an audible BFO sidetone. Like SSB, `produceAudio` is
+overridden with a complex channel decimator, then a BFO NCO beats DC → pitch.
+
+```
+float I/Q → DC blocker → NCO freq-shift
+          → FIR1 LPF (complex, 100 kHz wide anti-alias)
+          → decimate D1 → IF @ 500 kHz
+          → channel FIR (complex, 255 taps, fc = bandwidth/2) + decimate → audio @ 50 kHz
+          → BFO NCO mix (shift DC → pitchHz), take real part
+          → audio @ 50 kHz
+```
+
+An on-frequency carrier (key-down) lands at DC after the NCO, so the BFO turns it
+into a clean beat note at exactly the pitch frequency.
+
+### CW parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Bandwidth | 500 Hz default | Clamp 50 Hz – 0.9·(audioSR/2); FIR fc = BW/2 |
+| Pitch (BFO) | 700 Hz default | Clamp 300–1200 Hz; sidetone frequency |
+| Channel FIR | 255 taps @ IF | Steep skirt for CW selectivity |
+| Min IF | 20 kHz | |
+
+## SAM demodulation chain (Synchronous AM)
+
+Carrier-tracking PLL synchronous detector — a phase-locked reference derotates the
+carrier so the real part is the recovered envelope, without the distortion of an
+envelope detector at low signal levels. Overrides `demodulateIF()` only (default
+`produceAudio` path with FIR2 + D2 decimation).
+
+```
+float I/Q → DC blocker → NCO freq-shift
+          → FIR1 LPF (complex, 100 kHz wide anti-alias)
+          → decimate D1 → IF @ 500 kHz
+          → carrier PLL: derotate to baseband, take real part
+          → audio DC removal (IIR HP ~20 Hz, removes carrier DC term)
+          → FIR2 LPF (real, 255 taps, fc = bandwidth)
+          → decimate D2=10 → audio @ 50 kHz
+```
+
+The PLL frequency term is clamped to a ±1 kHz pull-in range so it locks onto the
+carrier rather than a modulation sideband.
+
+### SAM parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Bandwidth | 5 kHz default | Clamp 1 kHz – 0.9·(audioSR/2); sets FIR2 |
+| PLL loop bandwidth | 100 Hz default | Clamp 10–500 Hz |
+| Pull-in range | ±1 kHz | PLL freq clamp, locks carrier not sideband |
+| DC removal | IIR HP ~20 Hz | Removes carrier DC after synchronous detection |
+| Min IF | 20 kHz | |
+
+## DSP building blocks (`DspUtils`)
+
+Shared primitives used by the demodulators above (all unit-tested in
+`test_dsputils.cpp`):
+
+| Helper | Purpose |
+|--------|---------|
+| `designLowpassFir(N, fcNorm)` | Windowed-sinc lowpass (Blackman), real taps |
+| `designBandpassFir(N, f1, f2)` | Windowed-sinc bandpass |
+| `designHilbertFir(N)` | Type III Hilbert transformer (odd N, antisymmetric) |
+| `FirComplexDecimator` | Complex FIR + integer decimation (SSB/CW channel select) |
+| `DelayLine` | Integer-sample delay (matches Hilbert group delay) |
+| `CarrierPll` | Second-order carrier-tracking PLL (SAM synchronous detect) |
+| `Nco` | Numerically-controlled oscillator (station offset + CW BFO) |
+
 ## Why 500 kHz IF
 
 FIR1 must anti-alias before D1 decimation. Transition band = Nyquist − passband:

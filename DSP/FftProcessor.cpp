@@ -1,4 +1,5 @@
 #include "FftProcessor.h"
+#include "FftPlannerLock.h"
 
 #include <fftw3.h>
 
@@ -18,10 +19,10 @@ constexpr double kEps = 1e-12;
 constexpr double kPi  = 3.14159265358979323846;
 
 // fftwf_plan_dft_1d / fftwf_destroy_plan modify global FFTW planner state
-// and are NOT thread-safe. Two RxWorkers (ch0, ch1) race here on startup.
-// All plan creation/destruction must go through this single mutex.
+// and are NOT thread-safe. All plan creation/destruction — here AND in every
+// other translation unit (WaterfallHandler!) — must serialize through the
+// process-wide fftwPlannerMutex() from FftPlannerLock.h.
 // fftwf_execute() and fftwf_malloc/free are thread-safe and need no lock.
-std::mutex s_plannerMutex;
 
 // ---------------------------------------------------------------------------
 // PlanCache — one FFTW plan per (fftSize, thread).
@@ -41,7 +42,7 @@ struct CachedPlan {
 
     ~CachedPlan() {
         if (plan) {
-            std::lock_guard<std::mutex> lock(s_plannerMutex);
+            std::lock_guard<std::mutex> lock(fftwPlannerMutex());
             fftwf_destroy_plan(plan);
         }
         if (in)  fftwf_free(in);
@@ -64,7 +65,7 @@ CachedPlan& getPlan(int fftSize) {
     if (entry.size != fftSize) {
         // Destroy old resources if any
         if (entry.plan) {
-            std::lock_guard<std::mutex> lock(s_plannerMutex);
+            std::lock_guard<std::mutex> lock(fftwPlannerMutex());
             fftwf_destroy_plan(entry.plan);
             entry.plan = nullptr;
         }
@@ -84,7 +85,7 @@ CachedPlan& getPlan(int fftSize) {
         // then reuses the winner for every subsequent execute — worthwhile
         // for a long-running real-time app.
         {
-            std::lock_guard<std::mutex> lock(s_plannerMutex);
+            std::lock_guard<std::mutex> lock(fftwPlannerMutex());
             entry.plan = fftwf_plan_dft_1d(fftSize, entry.in, entry.out,
                                             FFTW_FORWARD, FFTW_MEASURE);
         }

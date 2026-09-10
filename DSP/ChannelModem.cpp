@@ -118,6 +118,21 @@ double ChannelModem::fir2Step(double x) {
 }
 
 // ---------------------------------------------------------------------------
+// produceAudio — default path: real demodulateIF() → FIR2 → decimate D2.
+// SSB/CW override this to run their own complex decimation + audio filter.
+// ---------------------------------------------------------------------------
+void ChannelModem::produceAudio(std::complex<double> ifSample, double ifPower,
+                                QVector<float>& out) {
+    const double audioSample = demodulateIF(ifSample, ifPower);
+    const double filtered2   = fir2Step(audioSample);
+
+    if (++dec2Counter_ < D2_) return;
+    dec2Counter_ = 0;
+
+    out.push_back(static_cast<float>(filtered2));
+}
+
+// ---------------------------------------------------------------------------
 // Main processing
 // ---------------------------------------------------------------------------
 QVector<float> ChannelModem::pushBlock(const float* iq, int count) {
@@ -156,18 +171,8 @@ QVector<float> ChannelModem::pushBlock(const float* iq, int count) {
                              + filtered1.imag() * filtered1.imag();
         ifPowerAvg_ = (1.0 - kPowerAlpha) * ifPowerAvg_ + kPowerAlpha * ifPower;
 
-        // ── 7. Subclass demodulation ─────────────────────────────────────────
-        const double audioSample = demodulateIF(filtered1, ifPower);
-
-        // ── 8. FIR2 audio lowpass ────────────────────────────────────────────
-        const double filtered2 = fir2Step(audioSample);
-
-        // ── 9. Stage-2 decimation ───────────────────────────────────────────
-        if (++dec2Counter_ < D2_) continue;
-        dec2Counter_ = 0;
-
-        // ── 10. Output ───────────────────────────────────────────────────────
-        audio.push_back(static_cast<float>(filtered2));
+        // ── 7-10. Subclass audio production (demod → FIR2 → decimate D2) ──────
+        produceAudio(filtered1, ifPower, audio);
     }
 
     // ── Diagnostics ──────────────────────────────────────────────────────────

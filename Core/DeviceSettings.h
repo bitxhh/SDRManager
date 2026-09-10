@@ -1,21 +1,25 @@
 #pragma once
 
 #include <QList>
+#include <QMap>
 #include <QString>
 
 // ---------------------------------------------------------------------------
 // DemodPanelSettings — per-panel UI state for the Радиомониторинг page.
 // Persisted as part of DeviceSettings; order matches slot order in the UI.
+//
+// `params` holds each modem's dynamic parameters keyed by descriptor name
+// (e.g. "Bandwidth", "De-emphasis", "Pitch"), in UI units for spins and the
+// selected option's internal value for combos. The panel rebuilds its widget
+// row from ModemRegistry, so the set of keys varies per mode.
 // ---------------------------------------------------------------------------
 struct DemodPanelSettings {
-    QString mode           = QStringLiteral("Off"); // "Off" / "FM" / "AM"
-    double  vfoMHz         = 102.0;
-    double  fmBwKHz        = 150.0;
-    double  fmDeemphSec    = 75e-6;
-    double  amBwKHz        = 5.0;
-    int     volumePct      = 80;
-    bool    recordFiltered = false;
-    bool    recordAudio    = false;
+    QString              mode           = QStringLiteral("Off"); // "Off" / modem name
+    double               vfoMHz         = 102.0;
+    QMap<QString,double> params;                                 // per-modem dynamic params
+    int                  volumePct      = 80;
+    bool                 recordFiltered = false;
+    bool                 recordAudio    = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -28,7 +32,7 @@ struct DemodPanelSettings {
 //   • INI stores LimeSuite chip configuration and is loaded after init()
 //     to restore the full register state.
 //
-// Storage: <AppDataLocation>/Stand/devices/<sanitized-serial>.{json,ini}
+// Storage: <AppDataLocation>/SDRManager/devices/<sanitized-serial>.{json,ini}
 // ---------------------------------------------------------------------------
 struct DeviceSettings {
     // Sentinel: поле вычисляется из Fs автоматически (LPF = Fs/2*0.8, calBw = max(LPF, 2.5 MHz)).
@@ -46,6 +50,15 @@ struct DeviceSettings {
 
     // Calibration bandwidth for LMS_Calibrate. kBwAuto = computeCalBwHz(sampleRate).
     double calBwHz         = kBwAuto;
+
+    // Межканальная фазовая калибровка (deg), применяется IqCombiner'ом к ch1.
+    // Оба RX на одном RXPLL — offset постоянен, переживает retune и рестарт.
+    double phaseCalDeg     = 0.0;
+
+    // Автокалибровка фазы: при высокой когерентности страница плавно сводит
+    // остаток Δ к нулю. Для пеленгации/радара выключается (уничтожает
+    // геометрическую фазу сигнала).
+    bool   phaseAutoCal    = true;
 
     // TX page
     double txFreqMHz       = 102.0;

@@ -62,6 +62,15 @@ protected:
     // subclass-specific state (discriminator, de-emphasis, etc.).
     virtual void resetDemodState() {}
 
+    // Audio production hook. Default path: demodulateIF() → FIR2 → decimate D2.
+    // SSB/CW override this to run their own complex decimation + audio filter,
+    // because the base FIR2 / D2 machinery is real-valued and private.
+    //   ifSample: complex signal after FIR1 + D1 decimation (IF rate).
+    //   ifPower:  |ifSample|².
+    //   out:      audio samples (0 or more) are appended here.
+    virtual void produceAudio(std::complex<double> ifSample, double ifPower,
+                              QVector<float>& out);
+
     // Subclass name for log messages.
     virtual const char* modemName() const = 0;
 

@@ -30,6 +30,9 @@ public:
     // Текущий список обнаруженных устройств.
     [[nodiscard]] virtual QList<std::shared_ptr<IDevice>> devices() const = 0;
 
+    // Открыть I/Q файл как устройство. Дефолт: не поддерживается (nullptr).
+    virtual std::shared_ptr<IDevice> openFile(const QString& /*path*/) { return nullptr; }
+
 signals:
     // Эмитируется после refresh(), если набор устройств изменился.
     void devicesChanged();

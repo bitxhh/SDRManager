@@ -34,10 +34,14 @@ double IqCombiner::calibrateNow() {
     double raw = 0.0;
     {
         std::lock_guard lock(mutex_);
-        // Используем аккумулированный cross-продукт, если есть данные; иначе 0.
+        // Используем аккумулированный cross-продукт, если есть данные; иначе —
+        // последнюю сырую фазу, отданную maybeEmitPhase() (аккумуляторы
+        // сбрасываются каждым эмитом, окно ≤ kEmitIntervalMs может быть пустым).
         if (accBlocks_ > 0 &&
             (crossReAcc_ != 0.0 || crossImAcc_ != 0.0)) {
             raw = std::atan2(crossImAcc_, crossReAcc_) * 180.0 / M_PI;
+        } else if (lastRawValid_) {
+            raw = lastRawDeg_;
         }
     }
     phaseCalibrationDeg_.store(raw);
@@ -183,6 +187,8 @@ void IqCombiner::maybeEmitPhase() {
     crossReAcc_ = crossImAcc_ = pow0Acc_ = pow1Acc_ = 0.0;
     accBlocks_  = 0;
     lastEmit_   = now;
+    lastRawDeg_   = rawDeg;
+    lastRawValid_ = true;
 
     emit phaseMetric(rawDeg, cal, coh);
 }
@@ -201,12 +207,30 @@ void IqCombiner::combineAndDispatch(int count, double sampleRateHz) {
             combined_[i] = src[i] * s;
     }
 
-    // Remaining channels: accumulate.
+    // Фазовая коррекция: ch1 поворачивается на e^{+j·θ}, θ = калибровка.
+    // raw = φ0 − φ1, поэтому поворот ch1 на +raw выравнивает его с ch0.
+    const double thetaDeg = phaseCalibrationDeg_.load();
+    const bool   rotate   = thetaDeg != 0.0;
+    const double thetaRad = thetaDeg * M_PI / 180.0;
+    const float  cosT     = static_cast<float>(std::cos(thetaRad));
+    const float  sinT     = static_cast<float>(std::sin(thetaRad));
+
+    // Remaining channels: accumulate. Rotation applies to ch1 only —
+    // метрика и калибровка определены для пары ch0↔ch1 (2-канальный дизайн).
     for (int ch = 1; ch < channelCount_; ++ch) {
         const float s = gainScale_[ch] * invN;
         const float* src = slots_[ch].data.data();
-        for (int i = 0; i < floatCount; ++i)
-            combined_[i] += src[i] * s;
+        if (ch == 1 && rotate) {
+            for (int n = 0; n < count; ++n) {
+                const float I = src[2*n];
+                const float Q = src[2*n + 1];
+                combined_[2*n]     += (I * cosT - Q * sinT) * s;
+                combined_[2*n + 1] += (I * sinT + Q * cosT) * s;
+            }
+        } else {
+            for (int i = 0; i < floatCount; ++i)
+                combined_[i] += src[i] * s;
+        }
     }
 
     resetSlots();
@@ -224,6 +248,8 @@ void IqCombiner::onStreamStarted(double /*sampleRateHz*/) {
     crossReAcc_ = crossImAcc_ = pow0Acc_ = pow1Acc_ = 0.0;
     accBlocks_  = 0;
     lastEmit_   = {};
+    lastRawDeg_   = 0.0;
+    lastRawValid_ = false;
     for (int ch = 0; ch < channelCount_; ++ch)
         sumI2_[ch] = sumQ2_[ch] = sumIQ_[ch] = 0.0;
     iqAccBlocks_ = 0;
@@ -240,8 +266,12 @@ void IqCombiner::onRetune(double /*newFreqHz*/) {
     resetSlots();
     crossReAcc_ = crossImAcc_ = pow0Acc_ = pow1Acc_ = 0.0;
     accBlocks_  = 0;
+    lastRawDeg_   = 0.0;
+    lastRawValid_ = false;
     for (int ch = 0; ch < channelCount_; ++ch)
         sumI2_[ch] = sumQ2_[ch] = sumIQ_[ch] = 0.0;
     iqAccBlocks_ = 0;
     // Keep lastEmit_/lastIqEmit_ as is — retune doesn't need to reset emit cadence.
+    // phaseCalibrationDeg_ сохраняется: оба канала на одном RXPLL, offset
+    // не зависит от частоты настройки.
 }

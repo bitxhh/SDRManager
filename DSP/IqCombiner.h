@@ -23,6 +23,10 @@ class Pipeline;
 // эмитит phaseMetric() с троттлингом. Фазовая калибровка хранится здесь:
 // setPhaseCalibrationDeg() / calibrateNow() вычитают константный offset из
 // сырой фазы (физически задержка между каналами постоянна при одном LO).
+// Калибровка ПРИМЕНЯЕТСЯ при суммировании: ch1 поворачивается на
+// e^{+j·θ} (θ = phaseCalibrationDeg_), выравнивая его фазу с ch0, — сумма
+// становится когерентной. Метрика меряется ДО поворота: rawDeg — физический
+// offset, calibratedDeg — остаточная ошибка после коррекции.
 //
 // Threading: processBlock() is called from different RxWorker threads
 // (one per channel). Internal mutex serialises access; the thread that
@@ -98,6 +102,10 @@ private:
     double  pow0Acc_{0.0};
     double  pow1Acc_{0.0};
     int     accBlocks_{0};
+    // Последняя сырая фаза, отданная maybeEmitPhase() — fallback для
+    // calibrateNow(), если аккумуляторы только что были сброшены эмитом.
+    double  lastRawDeg_{0.0};
+    bool    lastRawValid_{false};
     using Clock = std::chrono::steady_clock;
     Clock::time_point lastEmit_{};
     static constexpr int kEmitIntervalMs = 200;

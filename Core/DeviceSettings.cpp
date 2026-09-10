@@ -62,6 +62,8 @@ DeviceSettings DeviceSettings::load(const QString& serial) {
         s.rfBwRxHz[i] = rfBws[i].toDouble(s.rfBwRxHz[i]);
 
     s.calBwHz        = o.value("calBwHz").toDouble(s.calBwHz);
+    s.phaseCalDeg    = o.value("phaseCalDeg").toDouble(s.phaseCalDeg);
+    s.phaseAutoCal   = o.value("phaseAutoCal").toBool(s.phaseAutoCal);
 
     s.txFreqMHz      = o.value("txFreqMHz").toDouble(s.txFreqMHz);
     s.txGainDb       = o.value("txGainDb").toDouble(s.txGainDb);
@@ -75,12 +77,13 @@ DeviceSettings DeviceSettings::load(const QString& serial) {
         DemodPanelSettings d;
         d.mode           = p.value("mode").toString(d.mode);
         d.vfoMHz         = p.value("vfoMHz").toDouble(d.vfoMHz);
-        d.fmBwKHz        = p.value("fmBwKHz").toDouble(d.fmBwKHz);
-        d.fmDeemphSec    = p.value("fmDeemphSec").toDouble(d.fmDeemphSec);
-        d.amBwKHz        = p.value("amBwKHz").toDouble(d.amBwKHz);
         d.volumePct      = p.value("volumePct").toInt(d.volumePct);
         d.recordFiltered = p.value("recordFiltered").toBool(d.recordFiltered);
         d.recordAudio    = p.value("recordAudio").toBool(d.recordAudio);
+
+        const QJsonObject params = p.value("params").toObject();
+        for (auto it = params.begin(); it != params.end(); ++it)
+            d.params.insert(it.key(), it.value().toDouble());
         s.demodPanels.append(d);
     }
     return s;
@@ -97,6 +100,8 @@ bool DeviceSettings::save(const QString& serial) const {
     o["freqRxMHz"]     = QJsonArray{ freqRxMHz[0], freqRxMHz[1] };
     o["rfBwRxHz"]      = QJsonArray{ rfBwRxHz[0], rfBwRxHz[1] };
     o["calBwHz"]       = calBwHz;
+    o["phaseCalDeg"]   = phaseCalDeg;
+    o["phaseAutoCal"]  = phaseAutoCal;
     o["txFreqMHz"]     = txFreqMHz;
     o["txGainDb"]      = txGainDb;
     o["txToneOffsetHz"]= txToneOffsetHz;
@@ -107,12 +112,14 @@ bool DeviceSettings::save(const QString& serial) const {
         QJsonObject p;
         p["mode"]           = d.mode;
         p["vfoMHz"]         = d.vfoMHz;
-        p["fmBwKHz"]        = d.fmBwKHz;
-        p["fmDeemphSec"]    = d.fmDeemphSec;
-        p["amBwKHz"]        = d.amBwKHz;
         p["volumePct"]      = d.volumePct;
         p["recordFiltered"] = d.recordFiltered;
         p["recordAudio"]    = d.recordAudio;
+
+        QJsonObject params;
+        for (auto it = d.params.begin(); it != d.params.end(); ++it)
+            params[it.key()] = it.value();
+        p["params"] = params;
         panels.append(p);
     }
     o["demodPanels"] = panels;

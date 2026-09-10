@@ -1,4 +1,4 @@
-#include "DemodulatorPanel.h"
+﻿#include "DemodulatorPanel.h"
 #include "CombinedRxController.h"
 #include "../Audio/FmAudioOutput.h"
 #include "../Core/FileNaming.h"
@@ -6,6 +6,7 @@
 #include "../DSP/BandpassHandler.h"
 #include "../DSP/ModemHandler.h"
 #include "../DSP/ModemRegistry.h"
+#include "../DSP/ModemTypes.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -17,6 +18,19 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
+#include <memory>
+#include <variant>
+
+namespace {
+// Number of decimal places needed to represent `step` exactly (capped at 4).
+int decimalsForStep(double step) {
+    int d = 0;
+    double s = std::abs(step);
+    while (d < 4 && std::abs(s - std::round(s)) > 1e-9) { s *= 10.0; ++d; }
+    return d;
+}
+} // namespace
 
 DemodulatorPanel::DemodulatorPanel(int slotIndex, QWidget* parent)
     : QWidget(parent)
@@ -41,7 +55,7 @@ void DemodulatorPanel::buildUi() {
     outer->setContentsMargins(6, 4, 6, 4);
     outer->setSpacing(2);
 
-    // ── Row 1: slot label, mode, VFO, BW/De-emph, volume, remove ─────────────
+    // в”Ђв”Ђ Row 1: slot label, mode, VFO, BW/De-emph, volume, remove в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     auto* row1  = new QWidget(this);
     auto* hlay1 = new QHBoxLayout(row1);
     hlay1->setContentsMargins(0, 0, 0, 0);
@@ -52,10 +66,9 @@ void DemodulatorPanel::buildUi() {
 
     auto* modeLabel = new QLabel("Mode:", row1);
     modeCombo_ = new QComboBox(row1);
-    modeCombo_->addItem("Off", 0);
-    modeCombo_->addItem("FM",  1);
-    modeCombo_->addItem("AM",  2);
-    modeCombo_->setFixedWidth(60);
+    modeCombo_->addItem("Off");                       // index 0 = disabled
+    modeCombo_->addItems(ModemRegistry::instance().names());
+    modeCombo_->setFixedWidth(64);
 
     auto* vfoLabel = new QLabel("VFO (MHz):", row1);
     vfoSpin_ = new QDoubleSpinBox(row1);
@@ -66,30 +79,11 @@ void DemodulatorPanel::buildUi() {
     vfoSpin_->setFixedWidth(100);
     vfoSpin_->setEnabled(false);
 
-    fmBwLabel_ = new QLabel("BW (kHz):", row1);
-    fmBwSpin_  = new QDoubleSpinBox(row1);
-    fmBwSpin_->setRange(50.0, 250.0);
-    fmBwSpin_->setDecimals(0);
-    fmBwSpin_->setSingleStep(10.0);
-    fmBwSpin_->setValue(150.0);
-    fmBwSpin_->setFixedWidth(70);
-    fmBwSpin_->setToolTip("WBFM filter bandwidth. Broadcast: 100–150 kHz");
-
-    fmDeemphLabel_ = new QLabel("De-emph:", row1);
-    fmDeemphCombo_ = new QComboBox(row1);
-    fmDeemphCombo_->addItem("EU  50 \u00b5s", 50e-6);
-    fmDeemphCombo_->addItem("US  75 \u00b5s", 75e-6);
-    fmDeemphCombo_->setCurrentIndex(1);
-    fmDeemphCombo_->setToolTip("Europe / Russia: 50 \u00b5s\nUSA / Japan: 75 \u00b5s");
-
-    amBwLabel_ = new QLabel("BW (kHz):", row1);
-    amBwSpin_  = new QDoubleSpinBox(row1);
-    amBwSpin_->setRange(1.0, 20.0);
-    amBwSpin_->setDecimals(1);
-    amBwSpin_->setSingleStep(1.0);
-    amBwSpin_->setValue(5.0);
-    amBwSpin_->setFixedWidth(70);
-    amBwSpin_->setToolTip("AM broadcast: 4–5 kHz, SSB: 2–3 kHz");
+    // Host for the dynamic per-modem parameter widgets (rebuilt on mode change).
+    paramHost_   = new QWidget(row1);
+    paramLayout_ = new QHBoxLayout(paramHost_);
+    paramLayout_->setContentsMargins(0, 0, 0, 0);
+    paramLayout_->setSpacing(6);
 
     auto* volLabel = new QLabel("Vol:", row1);
     volumeSlider_  = new QSlider(Qt::Horizontal, row1);
@@ -122,12 +116,7 @@ void DemodulatorPanel::buildUi() {
     hlay1->addWidget(vfoLabel);
     hlay1->addWidget(vfoSpin_);
     hlay1->addSpacing(8);
-    hlay1->addWidget(fmBwLabel_);
-    hlay1->addWidget(fmBwSpin_);
-    hlay1->addWidget(fmDeemphLabel_);
-    hlay1->addWidget(fmDeemphCombo_);
-    hlay1->addWidget(amBwLabel_);
-    hlay1->addWidget(amBwSpin_);
+    hlay1->addWidget(paramHost_);
     hlay1->addSpacing(8);
     hlay1->addWidget(volLabel);
     hlay1->addWidget(volumeSlider_);
@@ -140,7 +129,7 @@ void DemodulatorPanel::buildUi() {
 
     outer->addWidget(row1);
 
-    // ── Row 2: status + IF level ─────────────────────────────────────────────
+    // в”Ђв”Ђ Row 2: status + IF level в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     auto* row2  = new QWidget(this);
     auto* hlay2 = new QHBoxLayout(row2);
     hlay2->setContentsMargins(0, 0, 0, 0);
@@ -156,12 +145,7 @@ void DemodulatorPanel::buildUi() {
     hlay2->addWidget(levelLabel_);
     outer->addWidget(row2);
 
-    // Initially hide mode-specific controls (mode = Off).
-    fmBwLabel_->hide();      fmBwSpin_->hide();
-    fmDeemphLabel_->hide();  fmDeemphCombo_->hide();
-    amBwLabel_->hide();      amBwSpin_->hide();
-
-    // ── Wiring ───────────────────────────────────────────────────────────────
+    // в”Ђв”Ђ Wiring в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     connect(modeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &DemodulatorPanel::onModeChanged);
 
@@ -171,20 +155,6 @@ void DemodulatorPanel::buildUi() {
             demodHandler_->setOffset(offsetHz);
         }
         emitVfoChanged();
-    });
-
-    connect(fmBwSpin_, &QDoubleSpinBox::valueChanged, this, [this](double bwKHz) {
-        if (demodHandler_) demodHandler_->setParam("Bandwidth", bwKHz * 1000.0);
-        emitVfoChanged();
-    });
-    connect(amBwSpin_, &QDoubleSpinBox::valueChanged, this, [this](double bwKHz) {
-        if (demodHandler_) demodHandler_->setParam("Bandwidth", bwKHz * 1000.0);
-        emitVfoChanged();
-    });
-    connect(fmDeemphCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) {
-        if (demodHandler_)
-            demodHandler_->setParam("De-emphasis", fmDeemphCombo_->currentData().toDouble());
     });
 
     connect(volumeSlider_, &QSlider::valueChanged, this, [this](int v) {
@@ -201,6 +171,105 @@ void DemodulatorPanel::buildUi() {
             this, [this](bool) { updateFilteredRecording(); });
     connect(audioCheck_, &QCheckBox::toggled,
             this, [this](bool) { updateAudioRecording(); });
+}
+
+// ---------------------------------------------------------------------------
+// Tears down the previous parameter row and rebuilds it from the selected
+// modem's descriptors. Each widget pushes changes straight into the live
+// handler (if any), so no modem-specific UI code is ever needed here.
+void DemodulatorPanel::rebuildParamWidgets(const QString& mode) {
+    // Drop the old controls.
+    params_.clear();
+    if (paramLayout_) {
+        QLayoutItem* item;
+        while ((item = paramLayout_->takeAt(0)) != nullptr) {
+            if (item->widget()) item->widget()->deleteLater();
+            delete item;
+        }
+    }
+    if (mode.isEmpty() || !paramLayout_) return;
+
+    // Query the descriptors from a throwaway handler (offset irrelevant here).
+    std::unique_ptr<ModemHandler> proto(
+        ModemRegistry::instance().create(mode, 0.0, nullptr));
+    if (!proto) return;
+
+    for (const modem::ParamDesc& desc : proto->paramDescriptors()) {
+        ParamControl pc;
+
+        if (const auto* sp = std::get_if<modem::SpinParam>(&desc)) {
+            pc.name  = sp->name;
+            pc.scale = sp->scale;
+
+            pc.label = new QLabel(sp->name + ':', paramHost_);
+            pc.label->setStyleSheet("color: #cccccc;");
+
+            pc.spin = new QDoubleSpinBox(paramHost_);
+            pc.spin->setRange(sp->min, sp->max);
+            pc.spin->setSingleStep(sp->step);
+            pc.spin->setDecimals(decimalsForStep(sp->step));
+            pc.spin->setSuffix(sp->suffix);
+            pc.spin->setValue(sp->defaultVal);
+
+            const QString name  = sp->name;
+            const double  scale = sp->scale;
+            connect(pc.spin, &QDoubleSpinBox::valueChanged, this,
+                    [this, name, scale](double v) {
+                        if (demodHandler_) demodHandler_->setParam(name, v * scale);
+                        emitVfoChanged();   // Bandwidth may have changed.
+                    });
+
+            paramLayout_->addWidget(pc.label);
+            paramLayout_->addWidget(pc.spin);
+        }
+        else if (const auto* cp = std::get_if<modem::ComboParam>(&desc)) {
+            pc.name  = cp->name;
+            pc.scale = 1.0;
+
+            pc.label = new QLabel(cp->name + ':', paramHost_);
+            pc.label->setStyleSheet("color: #cccccc;");
+
+            pc.combo = new QComboBox(paramHost_);
+            for (const auto& opt : cp->options)
+                pc.combo->addItem(opt.label, opt.value);
+            pc.combo->setCurrentIndex(
+                std::clamp(cp->defaultIndex, 0, int(cp->options.size()) - 1));
+
+            const QString name = cp->name;
+            connect(pc.combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    this, [this, name](int) {
+                        if (!demodHandler_) return;
+                        // currentData() carries the option's internal value.
+                        for (const ParamControl& p : params_)
+                            if (p.name == name && p.combo)
+                                demodHandler_->setParam(
+                                    name, p.combo->currentData().toDouble());
+                    });
+
+            paramLayout_->addWidget(pc.label);
+            paramLayout_->addWidget(pc.combo);
+        }
+        else {
+            continue;
+        }
+
+        params_.push_back(pc);
+    }
+}
+
+// ---------------------------------------------------------------------------
+double DemodulatorPanel::paramInternalValue(const ParamControl& pc) const {
+    if (pc.spin)  return pc.spin->value() * pc.scale;
+    if (pc.combo) return pc.combo->currentData().toDouble();
+    return 0.0;
+}
+
+// ---------------------------------------------------------------------------
+double DemodulatorPanel::bandwidthHz() const {
+    for (const ParamControl& pc : params_)
+        if (pc.name == QLatin1String("Bandwidth"))
+            return paramInternalValue(pc);
+    return 0.0;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,12 +291,9 @@ void DemodulatorPanel::detachFromController() {
 // ---------------------------------------------------------------------------
 void DemodulatorPanel::onModeChanged(int index) {
     const bool active = (index != 0);
-    const bool isFm   = (index == 1);
-    const bool isAm   = (index == 2);
 
-    fmBwLabel_->setVisible(isFm);     fmBwSpin_->setVisible(isFm);
-    fmDeemphLabel_->setVisible(isFm); fmDeemphCombo_->setVisible(isFm);
-    amBwLabel_->setVisible(isAm);     amBwSpin_->setVisible(isAm);
+    // Build the parameter-widget row for the newly selected modem (empty when Off).
+    rebuildParamWidgets(currentMode());
     vfoSpin_->setEnabled(active);
 
     teardownDemod();
@@ -269,7 +335,7 @@ void DemodulatorPanel::setRecordingContext(const QString& dir,
             audioCheck_->setChecked(false);
     }
 
-    // Re-evaluate — paths may have become valid / invalid.
+    // Re-evaluate вЂ” paths may have become valid / invalid.
     updateFilteredRecording();
     updateAudioRecording();
 }
@@ -343,22 +409,17 @@ void DemodulatorPanel::teardownAudioRecording() {
 // ---------------------------------------------------------------------------
 void DemodulatorPanel::applyDemod() {
     if (!ctrl_) return;
-    const int mode = modeCombo_ ? modeCombo_->currentIndex() : 0;
-    if (mode == 0) return;
+    const QString modeStr = currentMode();
+    if (modeStr.isEmpty()) return;
 
-    const QString modeStr = (mode == 1) ? QStringLiteral("FM") : QStringLiteral("AM");
     const double offsetHz = (vfoSpin_->value() - centerFreqMHz_) * 1e6;
 
     demodHandler_ = ModemRegistry::instance().create(modeStr, offsetHz, this);
     if (!demodHandler_) return;
 
     // Push current param values into the handler before it's added to pipeline.
-    if (mode == 1) {
-        demodHandler_->setParam("Bandwidth",   fmBwSpin_->value() * 1000.0);
-        demodHandler_->setParam("De-emphasis", fmDeemphCombo_->currentData().toDouble());
-    } else {
-        demodHandler_->setParam("Bandwidth",   amBwSpin_->value() * 1000.0);
-    }
+    for (const ParamControl& pc : params_)
+        demodHandler_->setParam(pc.name, paramInternalValue(pc));
 
     audioOut_ = new FmAudioOutput(this);
     audioOut_->setVolume(volume_);
@@ -439,7 +500,7 @@ void DemodulatorPanel::tuneToMHz(double mhz) {
     if (!vfoSpin_) return;
     const double half = (sampleRateHz_ > 0 ? sampleRateHz_ / 2.0 : 2e6) / 1e6;
     const double clamped = std::clamp(mhz, centerFreqMHz_ - half, centerFreqMHz_ + half);
-    vfoSpin_->setValue(clamped);   // triggers valueChanged → offset update + vfoChanged signal
+    vfoSpin_->setValue(clamped);   // triggers valueChanged в†’ offset update + vfoChanged signal
 }
 
 double DemodulatorPanel::vfoFreqMHz() const {
@@ -447,19 +508,13 @@ double DemodulatorPanel::vfoFreqMHz() const {
 }
 
 QString DemodulatorPanel::currentMode() const {
-    if (!modeCombo_) return {};
-    const int mode = modeCombo_->currentIndex();
-    if (mode == 1) return QStringLiteral("FM");
-    if (mode == 2) return QStringLiteral("AM");
-    return {};
+    return (modeCombo_ && modeCombo_->currentIndex() != 0)
+               ? modeCombo_->currentText()
+               : QString{};
 }
 
 double DemodulatorPanel::currentBwMHz() const {
-    if (!modeCombo_) return 0.0;
-    const int mode = modeCombo_->currentIndex();
-    if (mode == 1 && fmBwSpin_) return fmBwSpin_->value() / 1000.0;
-    if (mode == 2 && amBwSpin_) return amBwSpin_->value() / 1000.0;
-    return 0.0;
+    return bandwidthHz() / 1e6;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,7 +528,7 @@ void DemodulatorPanel::onStreamStarted() {
     if (ctrl_ && modeCombo_ && modeCombo_->currentIndex() != 0)
         applyDemod();
 
-    // Filtered recording is independent of the demod — attach if the user
+    // Filtered recording is independent of the demod вЂ” attach if the user
     // had its checkbox on (audio recording is handled inside applyDemod()).
     updateFilteredRecording();
 }
@@ -485,7 +540,7 @@ void DemodulatorPanel::onStreamStopped() {
         levelLabel_->setText("\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF");
 
     // Close any recording handlers so their files are finalized. Ownership
-    // of filteredHandler_ / audioHandler_ lives with the panel — the controller
+    // of filteredHandler_ / audioHandler_ lives with the panel вЂ” the controller
     // only holds raw pointers in extraHandlers_ and does not delete them.
     teardownAudioRecording();
     teardownFilteredRecording();
@@ -505,27 +560,23 @@ void DemodulatorPanel::onStreamStopped() {
 // ---------------------------------------------------------------------------
 DemodPanelSettings DemodulatorPanel::state() const {
     DemodPanelSettings s;
-    if (modeCombo_) {
-        const int idx = modeCombo_->currentIndex();
-        s.mode = (idx == 1) ? QStringLiteral("FM")
-               : (idx == 2) ? QStringLiteral("AM")
-               :              QStringLiteral("Off");
+    s.mode = (modeCombo_ && modeCombo_->currentIndex() != 0)
+                 ? modeCombo_->currentText()
+                 : QStringLiteral("Off");
+    if (vfoSpin_)       s.vfoMHz         = vfoSpin_->value();
+    if (volumeSlider_)  s.volumePct      = volumeSlider_->value();
+    if (filteredCheck_) s.recordFiltered = filteredCheck_->isChecked();
+    if (audioCheck_)    s.recordAudio    = audioCheck_->isChecked();
+
+    // Dynamic per-modem params: UI value for spins, internal value for combos.
+    for (const ParamControl& pc : params_) {
+        if (pc.spin)       s.params.insert(pc.name, pc.spin->value());
+        else if (pc.combo) s.params.insert(pc.name, pc.combo->currentData().toDouble());
     }
-    if (vfoSpin_)        s.vfoMHz      = vfoSpin_->value();
-    if (fmBwSpin_)       s.fmBwKHz     = fmBwSpin_->value();
-    if (fmDeemphCombo_)  s.fmDeemphSec = fmDeemphCombo_->currentData().toDouble();
-    if (amBwSpin_)       s.amBwKHz     = amBwSpin_->value();
-    if (volumeSlider_)   s.volumePct   = volumeSlider_->value();
-    if (filteredCheck_)  s.recordFiltered = filteredCheck_->isChecked();
-    if (audioCheck_)     s.recordAudio    = audioCheck_->isChecked();
     return s;
 }
 
 void DemodulatorPanel::applyState(const DemodPanelSettings& s) {
-    // Populate all widget values *before* activating the mode — onModeChanged
-    // reads fmBw/amBw/deemph to push into the handler via applyDemod when a
-    // stream is already live. At restore time (pre-start) this is moot, but
-    // the order is correct either way.
     if (vfoSpin_) {
         QSignalBlocker b(vfoSpin_);
         // Range may be narrower than the saved value until setSampleRateHz()
@@ -534,15 +585,6 @@ void DemodulatorPanel::applyState(const DemodPanelSettings& s) {
         const double lo = vfoSpin_->minimum();
         const double hi = vfoSpin_->maximum();
         vfoSpin_->setValue(std::clamp(s.vfoMHz, lo, hi));
-    }
-    if (fmBwSpin_) { QSignalBlocker b(fmBwSpin_); fmBwSpin_->setValue(s.fmBwKHz); }
-    if (amBwSpin_) { QSignalBlocker b(amBwSpin_); amBwSpin_->setValue(s.amBwKHz); }
-    if (fmDeemphCombo_) {
-        const int di = fmDeemphCombo_->findData(s.fmDeemphSec);
-        if (di >= 0) {
-            QSignalBlocker b(fmDeemphCombo_);
-            fmDeemphCombo_->setCurrentIndex(di);
-        }
     }
     if (volumeSlider_) {
         QSignalBlocker b(volumeSlider_);
@@ -555,13 +597,26 @@ void DemodulatorPanel::applyState(const DemodPanelSettings& s) {
     if (filteredCheck_) { QSignalBlocker b(filteredCheck_); filteredCheck_->setChecked(s.recordFiltered); }
     if (audioCheck_)    { QSignalBlocker b(audioCheck_);    audioCheck_->setChecked(s.recordAudio); }
 
-    // Finally select the mode — let onModeChanged run so visibility and VFO
-    // enable-state match the restored mode.
+    // Select the mode вЂ” onModeChanged rebuilds the param row with defaults,
+    // then we overwrite those defaults with any saved values below.
     if (modeCombo_) {
-        const int idx = (s.mode == QStringLiteral("FM")) ? 1
-                      : (s.mode == QStringLiteral("AM")) ? 2
-                      :                                    0;
+        const int idx = (s.mode.isEmpty() || s.mode == QStringLiteral("Off"))
+                            ? 0
+                            : std::max(0, modeCombo_->findText(s.mode));
         modeCombo_->setCurrentIndex(idx);
+    }
+
+    // Restore saved param values onto the freshly-built widgets.
+    for (const ParamControl& pc : params_) {
+        const auto it = s.params.find(pc.name);
+        if (it == s.params.end()) continue;
+        if (pc.spin) {
+            QSignalBlocker b(pc.spin);
+            pc.spin->setValue(it.value());
+        } else if (pc.combo) {
+            const int di = pc.combo->findData(it.value());
+            if (di >= 0) { QSignalBlocker b(pc.combo); pc.combo->setCurrentIndex(di); }
+        }
     }
 }
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Stand SDR — signal classifier service.
+SDRManager — signal classifier service.
 
 Drop-in contract:
-  1. Receive binary I/Q frames from Stand (see FRAME FORMAT below).
+  1. Receive binary I/Q frames from SDRManager (see FRAME FORMAT below).
   2. Classify the modulation type.
   3. Send back a JSON result on the same TCP connection.
 

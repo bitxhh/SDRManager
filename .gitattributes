@@ -1,0 +1,15 @@
+# Normalize text files to LF in the repository
+* text=auto
+
+# Binary files — never convert line endings
+*.cf32 binary
+*.cs16 binary
+*.wav  binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.dll  binary
+*.a    binary
+*.lib  binary
+*.exe  binary

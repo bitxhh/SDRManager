@@ -64,7 +64,7 @@ private:
     bool        outIsFloat_{true};   // true = Float32, false = Int16
 
     // ── Watchdog timer ────────────────────────────────────────────────────────
-    // Logs sink state every 2 s so silent failures are visible in stand.log.
+    // Logs sink state every 2 s so silent failures are visible in sdrmanager.log.
     QTimer*     watchdog_{nullptr};
 
     // ── Settings / state ──────────────────────────────────────────────────────

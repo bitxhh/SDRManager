@@ -195,3 +195,94 @@ TEST_CASE("IqCombiner: single channel with gain", "[iqcombiner]") {
     const float expected = 1.0f / std::pow(10.0f, 6.0f / 20.0f);
     REQUIRE_THAT(sink.lastData[0], WithinAbs(expected, 1e-5));
 }
+
+TEST_CASE("IqCombiner: phase calibration rotates ch1", "[iqcombiner]") {
+    Pipeline pipe;
+    TestSink sink;
+    pipe.addHandler(&sink);
+
+    IqCombiner combiner(2, &pipe);
+
+    constexpr int N = 32;
+    // ch1 отстаёт от ch0 на 90°: c0 = 1+j0, c1 = 0+j1 → raw = φ0−φ1 = −90°.
+    auto ch0 = makeConstIq(N, 1.0f, 0.0f);
+    auto ch1 = makeConstIq(N, 0.0f, 1.0f);
+
+    // Без калибровки — векторное среднее: (1+0)/2 + j(0+1)/2 = 0.5 + j0.5.
+    combiner.processBlock(ch0.data(), N, 2e6, meta(0, 100));
+    combiner.processBlock(ch1.data(), N, 2e6, meta(1, 100));
+    REQUIRE(sink.callCount == 1);
+    REQUIRE_THAT(sink.lastData[0], WithinAbs(0.5, 1e-5));
+    REQUIRE_THAT(sink.lastData[1], WithinAbs(0.5, 1e-5));
+
+    // С калибровкой −90° ch1 поворачивается на e^{−j·90°}: (0+j1) → (1+j0).
+    // Каналы складываются когерентно: combined = 1.0 + j0.
+    combiner.setPhaseCalibrationDeg(-90.0);
+    combiner.processBlock(ch0.data(), N, 2e6, meta(0, 200));
+    combiner.processBlock(ch1.data(), N, 2e6, meta(1, 200));
+    REQUIRE(sink.callCount == 2);
+    REQUIRE_THAT(sink.lastData[0], WithinAbs(1.0, 1e-5));
+    REQUIRE_THAT(sink.lastData[1], WithinAbs(0.0, 1e-5));
+}
+
+TEST_CASE("IqCombiner: calibrateNow measures ch0↔ch1 offset", "[iqcombiner]") {
+    Pipeline pipe;
+    TestSink sink;
+    pipe.addHandler(&sink);
+
+    IqCombiner combiner(2, &pipe);
+
+    constexpr int N = 32;
+    auto ch0 = makeConstIq(N, 1.0f, 0.0f);
+    auto ch1 = makeConstIq(N, 0.0f, 1.0f);
+
+    combiner.processBlock(ch0.data(), N, 2e6, meta(0, 100));
+    combiner.processBlock(ch1.data(), N, 2e6, meta(1, 100));
+
+    // cross = Σ c0·conj(c1) = Σ (0 − j) → atan2(−N, 0) = −90°.
+    // Работает и сразу после эмита phaseMetric (fallback на последнюю raw-фазу).
+    const double cal = combiner.calibrateNow();
+    REQUIRE_THAT(cal, WithinAbs(-90.0, 1e-6));
+    REQUIRE_THAT(combiner.phaseCalibrationDeg(), WithinAbs(-90.0, 1e-6));
+}
+
+TEST_CASE("IqCombiner: phaseMetric reports raw, residual, coherence", "[iqcombiner]") {
+    Pipeline pipe;
+    TestSink sink;
+    pipe.addHandler(&sink);
+
+    IqCombiner combiner(2, &pipe);
+    combiner.setPhaseCalibrationDeg(-90.0);
+
+    double raw = 0.0, cal = 0.0, coh = 0.0;
+    int emitted = 0;
+    QObject::connect(&combiner, &IqCombiner::phaseMetric,
+                     [&](double r, double c, double k) {
+                         raw = r; cal = c; coh = k; ++emitted;
+                     });
+
+    constexpr int N = 32;
+    auto ch0 = makeConstIq(N, 1.0f, 0.0f);
+    auto ch1 = makeConstIq(N, 0.0f, 1.0f);
+    combiner.processBlock(ch0.data(), N, 2e6, meta(0, 100));
+    combiner.processBlock(ch1.data(), N, 2e6, meta(1, 100));
+
+    // Первый эмит проходит без троттлинга (lastEmit_ = epoch 0).
+    REQUIRE(emitted == 1);
+    REQUIRE_THAT(raw, WithinAbs(-90.0, 1e-6));   // сырая фаза до коррекции
+    REQUIRE_THAT(cal, WithinAbs(0.0, 1e-6));     // остаток после калибровки
+    REQUIRE_THAT(coh, WithinAbs(1.0, 1e-6));     // идентичные тона → coherence 1
+}
+
+TEST_CASE("IqCombiner: onRetune preserves phase calibration", "[iqcombiner]") {
+    Pipeline pipe;
+    TestSink sink;
+    pipe.addHandler(&sink);
+
+    IqCombiner combiner(2, &pipe);
+    combiner.setPhaseCalibrationDeg(-42.5);
+
+    // Оба RX на одном RXPLL — offset не зависит от частоты настройки.
+    combiner.onRetune(100e6);
+    REQUIRE_THAT(combiner.phaseCalibrationDeg(), WithinAbs(-42.5, 1e-9));
+}
