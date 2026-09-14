@@ -368,8 +368,9 @@ void RadioMonitorPage::setupFftPlot() {
         fftPlot_->replot(QCustomPlot::rpQueuedReplot);
     });
 
-    // ЛКМ на спектре: в полосе фильтра — драг VFO этого демода,
-    // вне полос — перестройка первого активного демода (см. handleTunePress).
+    // ЛКМ на спектре: край полосы — ширина фильтра, внутри полосы — драг VFO
+    // этого демода, вне полос — перестройка первого активного демода
+    // (см. handleTunePress).
     connect(fftPlot_, &QCustomPlot::mousePress, this, [this](QMouseEvent* event) {
         if (event->button() != Qt::LeftButton) return;
         handleTunePress(fftPlot_->xAxis->pixelToCoord(event->pos().x()));
@@ -406,6 +407,21 @@ int RadioMonitorPage::demodIndexAtFreq(double mhz) const {
     return -1;
 }
 
+int RadioMonitorPage::demodEdgeIndexAtFreq(double mhz) const {
+    const double tol = hitToleranceMHz();
+    for (int i = 0; i < panels_.size(); ++i) {
+        auto* p = panels_[i];
+        if (p->currentMode().isEmpty()) continue;
+        const double bw = p->currentBwMHz();
+        if (bw <= 0.0) continue;
+        // Зона края не шире трети полосы — у узких фильтров центр
+        // должен оставаться доступным для сдвига.
+        const double edgeTol = std::min(tol, bw / 3.0);
+        if (std::abs(std::abs(mhz - p->vfoFreqMHz()) - bw) <= edgeTol) return i;
+    }
+    return -1;
+}
+
 int RadioMonitorPage::firstActiveDemodIndex() const {
     for (int i = 0; i < panels_.size(); ++i)
         if (!panels_[i]->currentMode().isEmpty()) return i;
@@ -413,7 +429,17 @@ int RadioMonitorPage::firstActiveDemodIndex() const {
 }
 
 void RadioMonitorPage::handleTunePress(double mhz) {
-    int idx = demodIndexAtFreq(mhz);
+    int idx = demodEdgeIndexAtFreq(mhz);
+    if (idx >= 0) {
+        // Захват края: ширина = |курсор − VFO| минус промах мимо края при нажатии.
+        auto* p = panels_[idx];
+        dragPanelIndex_    = idx;
+        dragResize_        = true;
+        dragGrabOffsetMHz_ = std::abs(mhz - p->vfoFreqMHz()) - p->currentBwMHz();
+        return;
+    }
+    dragResize_ = false;
+    idx = demodIndexAtFreq(mhz);
     if (idx >= 0) {
         // Захват полосы: VFO следует за курсором с сохранением точки хвата.
         dragPanelIndex_    = idx;
@@ -430,17 +456,26 @@ void RadioMonitorPage::handleTunePress(double mhz) {
 
 void RadioMonitorPage::handleTuneDrag(double mhz) {
     if (dragPanelIndex_ < 0 || dragPanelIndex_ >= panels_.size()) return;
-    panels_[dragPanelIndex_]->tuneToMHz(mhz - dragGrabOffsetMHz_);
+    auto* p = panels_[dragPanelIndex_];
+    if (dragResize_) {
+        // Спинбокс Bandwidth сам ограничит значение диапазоном модема.
+        const double bwMHz = std::abs(mhz - p->vfoFreqMHz()) - dragGrabOffsetMHz_;
+        p->setBandwidthHz(std::max(bwMHz, 0.0) * 1e6);
+        return;
+    }
+    p->tuneToMHz(mhz - dragGrabOffsetMHz_);
 }
 
 void RadioMonitorPage::endTuneDrag() {
     dragPanelIndex_ = -1;
+    dragResize_     = false;
 }
 
 void RadioMonitorPage::updateHoverCursor(QWidget* w, double mhz) {
     if (!w) return;
-    if (demodIndexAtFreq(mhz) >= 0) w->setCursor(Qt::SizeHorCursor);
-    else                            w->unsetCursor();
+    if      (demodEdgeIndexAtFreq(mhz) >= 0) w->setCursor(Qt::SizeHorCursor);
+    else if (demodIndexAtFreq(mhz) >= 0)     w->setCursor(Qt::OpenHandCursor);
+    else                                     w->unsetCursor();
 }
 
 // ---------------------------------------------------------------------------

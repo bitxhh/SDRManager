@@ -112,12 +112,14 @@ private:
     void updateFilterBands();
 
     // ── Клик/драг перестройки VFO (общая логика спектра и водопада) ─────────
-    // Нажатие в полосе фильтра любого демода → драг его VFO; вне полос —
-    // перестройка первого активного демода (и драг его же, пока ЛКМ зажата).
+    // Нажатие на край полосы фильтра → изменение ширины (симметрично от VFO);
+    // внутри полосы → драг VFO этого демода; вне полос — перестройка первого
+    // активного демода (и драг его же, пока ЛКМ зажата).
     void handleTunePress(double mhz);
     void handleTuneDrag(double mhz);
     void endTuneDrag();
     void updateHoverCursor(QWidget* w, double mhz);
+    [[nodiscard]] int    demodEdgeIndexAtFreq(double mhz) const;   // -1 = не на краю
     [[nodiscard]] int    demodIndexAtFreq(double mhz) const;
     [[nodiscard]] int    firstActiveDemodIndex() const;
     [[nodiscard]] double hitToleranceMHz() const;   // мин. половина зоны захвата (≈4 px)
@@ -153,6 +155,7 @@ private:
     // ── VFO drag state (спектр + водопад) ────────────────────────────────────
     int             dragPanelIndex_{-1};      // индекс в panels_, -1 = нет драга
     double          dragGrabOffsetMHz_{0.0};  // mhz нажатия − VFO (без прыжка)
+    bool            dragResize_{false};       // true = тянем край (ширина), false = сдвиг VFO
 
     // ── Demodulator panels ───────────────────────────────────────────────────
     QVBoxLayout*    panelsLayout_{nullptr};

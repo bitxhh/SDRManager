@@ -40,6 +40,8 @@ public:
     [[nodiscard]] int slotIndex() const { return slotIndex_; }
     [[nodiscard]] QString currentMode() const;
     [[nodiscard]] double currentBwMHz() const;
+    // No-op if the current mode has no spin-based "Bandwidth" param.
+    void setBandwidthHz(double hz);
 
     // Supplies everything needed to build recording filenames. Called by
     // RadioMonitorPage at stream start / settings change.

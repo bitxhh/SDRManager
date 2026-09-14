@@ -517,6 +517,16 @@ double DemodulatorPanel::currentBwMHz() const {
     return bandwidthHz() / 1e6;
 }
 
+void DemodulatorPanel::setBandwidthHz(double hz) {
+    for (ParamControl& pc : params_) {
+        if (pc.name != QLatin1String("Bandwidth") || !pc.spin || pc.scale == 0.0) continue;
+        // The spin clamps to the modem's range; valueChanged pushes the param
+        // to the handler and emits vfoChanged (band redraw).
+        pc.spin->setValue(hz / pc.scale);
+        return;
+    }
+}
+
 // ---------------------------------------------------------------------------
 void DemodulatorPanel::emitVfoChanged() {
     emit vfoChanged(slotIndex_, vfoFreqMHz(), currentBwMHz());
