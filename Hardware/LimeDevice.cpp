@@ -1,5 +1,6 @@
 #include "LimeDevice.h"
 #include "LimeException.h"
+#include "LogScope.h"
 #include "Logger.h"
 
 #include <QComboBox>
@@ -129,6 +130,7 @@ void LimeDevice::close() {
         setState(DeviceState::Connected);
         return;
     }
+    LogScope scope(LogCat::kDeviceLifecycle, "close " + serial_);
     LOG_CAT(LogCat::kDeviceLifecycle, LogLevel::Info, "LimeDevice::close: " + serial_);
     teardownAllStreams();
     LMS_Close(handle_);
@@ -140,6 +142,7 @@ void LimeDevice::close() {
 // IDevice: reconfigureChannels — lightweight channel switch without LMS reinit
 // ---------------------------------------------------------------------------
 void LimeDevice::reconfigureChannels(const QList<ChannelDescriptor>& channels) {
+    LogScope scope(LogCat::kDeviceLifecycle, "reconfigureChannels " + serial_);
     if (state_ < DeviceState::Ready)
         throw LimeInitException("reconfigureChannels: device not initialized");
 
@@ -213,6 +216,7 @@ void LimeDevice::setState(DeviceState s) {
 // IDevice: init
 // ---------------------------------------------------------------------------
 void LimeDevice::init(const QList<ChannelDescriptor>& channels) {
+    LogScope scope(LogCat::kDeviceLifecycle, "init " + serial_);
     LOG_CAT(LogCat::kDeviceLifecycle, LogLevel::Info, "LimeDevice init: " + serial_);
     setState(DeviceState::Connected);
 
@@ -314,6 +318,7 @@ void LimeDevice::init(const QList<ChannelDescriptor>& channels) {
 // IDevice: calibrate
 // ---------------------------------------------------------------------------
 void LimeDevice::calibrateChannel(int idx, double calBwHz) {
+    LogScope scope(LogCat::kCalibration, "calibrateChannel ch" + std::to_string(idx) + " " + serial_);
     const double calBw     = calBwHz;
     const double savedGain = currentGainDb_[idx];
 
@@ -402,6 +407,7 @@ void LimeDevice::resetDcAfterRetune(int idx) {
 }
 
 void LimeDevice::calibrate(const QList<ChannelDescriptor>& channels, double calBwHz) {
+    LogScope scope(LogCat::kCalibration, "calibrate " + serial_);
     if (state_ < DeviceState::Ready)
         throw LimeInitException("Cannot calibrate — device not initialized");
 
@@ -459,6 +465,7 @@ void LimeDevice::calibrate(const QList<ChannelDescriptor>& channels, double calB
 // IDevice: setSampleRate / sampleRate
 // ---------------------------------------------------------------------------
 void LimeDevice::setSampleRate(double hz) {
+    LogScope scope(LogCat::kSampleRate, "setSampleRate " + serial_);
     if (hz <= 0.0)
         throw LimeParameterException("Sample rate must be > 0");
 
@@ -743,6 +750,10 @@ void LimeDevice::startStream(ChannelDescriptor ch) {
     // multiple worker threads, which LimeSuite cannot handle safely.
     if (startedStreams_.count(ch)) return;
 
+    LogScope scope(LogCat::kStreamIo, std::string("startStream ")
+                   + (ch.direction == ChannelDescriptor::TX ? "TX" : "RX")
+                   + std::to_string(ch.channelIndex) + " " + serial_);
+
     if (!streams_.count(ch))
         setupStream(ch);
 
@@ -762,6 +773,9 @@ void LimeDevice::startStream(ChannelDescriptor ch) {
 }
 
 void LimeDevice::stopStream(ChannelDescriptor ch) {
+    LogScope scope(LogCat::kStreamIo, std::string("stopStream ")
+                   + (ch.direction == ChannelDescriptor::TX ? "TX" : "RX")
+                   + std::to_string(ch.channelIndex) + " " + serial_);
     {
         std::lock_guard lock(startStreamMutex_);
         startedStreams_.erase(ch);
@@ -803,6 +817,7 @@ void LimeDevice::checkPauseForRetune(ChannelDescriptor ch) {
 }
 
 void LimeDevice::performStreamingRetune(int idx, double hz) {
+    LogScope scope(LogCat::kDeviceLifecycle, "streamingRetune ch" + std::to_string(idx) + " " + serial_);
     // Snapshot key data while not yet parked so we fail fast on a bad idx.
     auto it = streams_.find({ChannelDescriptor::RX, idx});
     if (it == streams_.end()) {

@@ -176,6 +176,9 @@ add_executable(SDRManager
         Core/Logger.h
         Core/LoggerConfig.cpp
         Core/LoggerConfig.h
+        Core/LogScope.h
+        Core/ProfilingHandler.cpp
+        Core/ProfilingHandler.h
         Core/RecordingSettings.h
         Core/WaterfallSettings.h
 )
@@ -259,6 +262,7 @@ add_executable(SDRManagerTests
         DSP/FftProcessor.cpp
         DSP/IqCombiner.cpp
         Core/Pipeline.cpp
+        Core/ProfilingHandler.cpp
         Core/Logger.cpp
         Core/LoggerConfig.cpp
 )

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "IPipelineHandler.h"
+#include "ProfilingHandler.h"
 #include <QObject>
 #include <QThreadPool>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <vector>
@@ -22,6 +24,11 @@
 //   после завершения всех задач (барьер) — backpressure сохраняется.
 //   Handlers не должны разделять изменяемое состояние между собой.
 //   При pool == nullptr или одном handler — синхронный последовательный вызов.
+//
+// Профилирование:
+//   Если на момент addHandler() включена категория LogCat::kPipelineTiming,
+//   handler оборачивается в ProfilingHandler. removeHandler() принимает
+//   исходный указатель — обёртка находится и удаляется сама.
 // ---------------------------------------------------------------------------
 class Pipeline : public QObject {
     Q_OBJECT
@@ -47,4 +54,5 @@ private:
     QThreadPool*                   pool_{nullptr};
     std::shared_mutex              mutex_;
     std::vector<IPipelineHandler*> handlers_;
+    std::vector<std::unique_ptr<ProfilingHandler>> profilers_;  // владеют обёртками из handlers_
 };

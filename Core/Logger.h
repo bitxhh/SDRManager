@@ -60,6 +60,10 @@ private:
 #define LOG_ERROR(msg)        Logger::instance().log(LogLevel::Error,   msg)
 #define LOG_PARAM(key, value) Logger::instance().logParam((key), (value))
 
-// Category-filtered log. Dropped when LoggerConfig::isEnabled(cat) is false.
-#define LOG_CAT(cat, level, msg) \
-    Logger::instance().log((level), QLatin1String(cat), (msg))
+// Category-filtered log. When LoggerConfig::isEnabled(cat) is false, `msg` is
+// not evaluated at all, so string building costs nothing. Statement-only macro.
+#define LOG_CAT(cat, level, msg)                                                  \
+    do {                                                                          \
+        if (LoggerConfig::instance().isEnabled(QLatin1String(cat)))               \
+            Logger::instance().log((level), QLatin1String(cat), (msg));           \
+    } while (0)
