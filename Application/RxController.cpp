@@ -147,10 +147,6 @@ void RxController::removeExtraHandler(IPipelineHandler* h) {
         extraHandlers_.end());
 }
 
-double RxController::ifRms() const {
-    return demodHandler_ ? demodHandler_->ifRms() : 0.0;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Internal cleanup
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -7,7 +7,9 @@
 
 #include <QObject>
 #include <QVector>
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -21,7 +23,7 @@
 //   IModem           — scheme identity (modemName, paramDescriptors, makeModulator).
 //
 // Manages:  generic named parameters (thread-safe), lazy-init,
-//           audioReady signal, ifRms proxy.
+//           audioReady signal.
 //
 // Subclasses implement:
 //   paramDescriptors()  — UI metadata (spin/combo definitions)
@@ -32,6 +34,11 @@ class ModemHandler : public QObject, public IPipelineHandler, public IModem {
     Q_OBJECT
 
 public:
+    // FIR tap-count param keys. Changing one rebuilds the demodulator.
+    static constexpr const char* kFir1TapsKey = "FIR1 taps";
+    static constexpr const char* kFir2TapsKey = "FIR2 taps";     // FM/NFM/AM/SAM
+    static constexpr const char* kChanTapsKey = "Channel taps";  // SSB/CW
+
     // Parameter descriptors for UI auto-build (IModem).
     std::vector<modem::ParamDesc> paramDescriptors() const override { return {}; }
 
@@ -46,8 +53,6 @@ public:
 
     // NCO offset — universal, not a "parameter".
     void setOffset(double hz);
-
-    [[nodiscard]] double ifRms() const { return dem_ ? dem_->ifRms() : 0.0; }
 
     // IPipelineHandler
     void processBlock(const float* iq, int count, double sampleRateHz) override;
@@ -73,10 +78,18 @@ protected:
     // Scheme name (IModem). Also used in log strings.
     const char* modemName() const override = 0;
 
+    // Read a FIR tap-count param: clamped to [kMinFirTaps, kMaxFirTaps], forced odd.
+    static int tapsParam(const std::map<QString, double>& params,
+                         const QString& key, int def);
+
     double stationOffsetHz_;
     std::unique_ptr<ChannelModem> dem_;
 
 private:
+    // Tap-count params ("... taps") can't be applied live — they rebuild dem_.
+    static bool isTapsParam(const QString& name);
+
+    double currentOffsetHz_;   // last applied NCO offset (worker thread)
     mutable std::mutex paramMutex_;
     std::map<QString, double> params_;
     std::vector<std::pair<QString, double>> pendingParams_;

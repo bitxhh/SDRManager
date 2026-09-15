@@ -16,11 +16,14 @@ constexpr double kPullRangeHz = 1'000.0;
 SamModem::SamModem(double inputSampleRateHz,
                    double stationOffsetHz,
                    double bandwidthHz,
-                   double pllBwHz)
+                   double pllBwHz,
+                   int    fir1Taps,
+                   int    fir2Taps)
     : ChannelModem(inputSampleRateHz, stationOffsetHz,
                    100'000.0,         // FIR1 cutoff = fixed 100 kHz (wide anti-alias)
                    bandwidthHz,       // FIR2 cutoff = user bandwidth
-                   20'000.0)          // min IF for SAM
+                   20'000.0,          // min IF for SAM
+                   fir1Taps, fir2Taps)
     , pllBw_(pllBwHz)
 {
     bandwidth_ = std::clamp(bandwidthHz, 1'000.0, audioSR_ / 2.0 * 0.9);

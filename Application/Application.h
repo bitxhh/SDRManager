@@ -104,6 +104,8 @@ private:
 
     // Helper — builds the list of ChannelDescriptors currently selected in UI.
     [[nodiscard]] QList<ChannelDescriptor> selectedChannels() const;
+    // RX channelIndex → gain slider value (dB), for pushing UI gains into the device.
+    [[nodiscard]] QMap<int, double> sliderRxGains() const;
     void updateChannelRowVisibility();
     void autoOpenDevice();
     void applyChannelSelectionChange();
@@ -113,9 +115,6 @@ private:
 
     // ── Plot render timer (delegates to RadioMonitorPage::replotIfDirty()) ───
     QTimer* plotTimer_{nullptr};
-
-    // ── Metrics timer (delegates to RadioMonitorPage::updateMetrics()) ────────
-    QTimer* metricsTimer_{nullptr};
 
     // ── Chip temperature indicator in status bar ─────────────────────────────
     QLabel* temperatureLabel_{nullptr};

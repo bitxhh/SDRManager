@@ -257,11 +257,10 @@ DeviceDetailWindow::~DeviceDetailWindow() {
 }
 
 void DeviceDetailWindow::closeEvent(QCloseEvent* event) {
-    // ── 1. Stop timers — prevent new watchdog/plot/metrics calls during teardown ──
+    // ── 1. Stop timers — prevent new watchdog/plot calls during teardown ──
     connectionTimer->stop();
     connectionWatcher.waitForFinished();
     if (plotTimer_)        plotTimer_->stop();
-    if (metricsTimer_)     metricsTimer_->stop();
     if (temperatureTimer_) temperatureTimer_->stop();
 
     // ── 2. Synchronously stop RX stream ──────────────────────────────────────────
@@ -589,6 +588,18 @@ QList<ChannelDescriptor> DeviceDetailWindow::selectedChannels() const {
     return result;
 }
 
+QMap<int, double> DeviceDetailWindow::sliderRxGains() const {
+    // gainSliders_ are created in the same order as the RX channels below.
+    QMap<int, double> gains;
+    int i = 0;
+    for (const auto& info : device->availableChannels()) {
+        if (info.descriptor.direction != ChannelDescriptor::RX) continue;
+        if (i >= gainSliders_.size()) break;
+        gains.insert(info.descriptor.channelIndex, gainSliders_[i++]->value());
+    }
+    return gains;
+}
+
 void DeviceDetailWindow::updateChannelRowVisibility() {
     // Grey out gain rows that aren't in the current selection so the user
     // sees which channels the chosen count covers.
@@ -614,7 +625,7 @@ QWidget* DeviceDetailWindow::createRadioMonitorPage() {
     radioMonitorPage_->setActiveChannels(selectedChannels());
 
     // Propagate stream events to window-level housekeeping
-    // (connection watchdog, metrics timer, calibrate button).
+    // (connection watchdog, calibrate button, channel selection).
     connect(radioMonitorPage_, &RadioMonitorPage::streamStarted, this, [this]() {
         // LMS_GetDeviceList (watchdog) interferes with USB during streaming.
         connectionTimer->stop();
@@ -622,16 +633,8 @@ QWidget* DeviceDetailWindow::createRadioMonitorPage() {
         // Channel selection is frozen while the stream is running.
         if (channelCountSpin_)   channelCountSpin_->setEnabled(false);
         if (channelAssignCombo_) channelAssignCombo_->setEnabled(false);
-        if (!metricsTimer_) {
-            metricsTimer_ = new QTimer(this);
-            connect(metricsTimer_, &QTimer::timeout, this, [this]() {
-                if (radioMonitorPage_) radioMonitorPage_->updateMetrics();
-            });
-        }
-        metricsTimer_->start(500);
     });
     connect(radioMonitorPage_, &RadioMonitorPage::streamStopped, this, [this]() {
-        if (metricsTimer_) metricsTimer_->stop();
         if (calibrateButton) calibrateButton->setEnabled(controller_->isInitialized());
         if (channelCountSpin_)   channelCountSpin_->setEnabled(true);
         if (channelAssignCombo_) channelAssignCombo_->setEnabled(true);
@@ -920,7 +923,7 @@ void DeviceDetailWindow::autoOpenDevice() {
     setNavEnabled(false);
     if (initProgressBar_)  { initProgressBar_->setValue(0); initProgressBar_->setVisible(true); }
     if (initProgressLabel_)  initProgressLabel_->setText("Initializing…");
-    controller_->autoOpen(selectedChannels(), sr);
+    controller_->autoOpen(selectedChannels(), sr, sliderRxGains());
 }
 
 void DeviceDetailWindow::setNavEnabled(bool enabled) {
@@ -952,7 +955,7 @@ void DeviceDetailWindow::applyChannelSelectionChange() {
     if (initProgressBar_)  { initProgressBar_->setValue(0); initProgressBar_->setVisible(true); }
     if (initProgressLabel_) initProgressLabel_->setText("Reconfiguring…");
 
-    controller_->reconfigureChannels(selectedChannels());
+    controller_->reconfigureChannels(selectedChannels(), sliderRxGains());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -13,11 +13,14 @@ static constexpr double kFmMaxDev = 75'000.0;
 FmModem::FmModem(double inputSampleRateHz,
                  double stationOffsetHz,
                  double deemphTauSec,
-                 double bandwidthHz)
+                 double bandwidthHz,
+                 int    fir1Taps,
+                 int    fir2Taps)
     : ChannelModem(inputSampleRateHz, stationOffsetHz,
                    bandwidthHz,       // FIR1 cutoff = user bandwidth
                    15'000.0,          // FIR2 cutoff = 15 kHz audio
-                   400'000.0)         // min IF for WBFM
+                   400'000.0,         // min IF for WBFM
+                   fir1Taps, fir2Taps)
     , deemphTau_(deemphTauSec)
 {
     bandwidth_ = std::clamp(bandwidthHz, 50'000.0, ifSR_ / 2.0 * 0.9);

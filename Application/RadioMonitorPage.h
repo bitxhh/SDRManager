@@ -56,9 +56,8 @@ public:
     void setActiveChannels(const QList<ChannelDescriptor>& channels);
     void setChannelGains(const QVector<double>& gainsDb);
 
-    // DeviceDetailWindow drives these from its timers.
+    // DeviceDetailWindow drives this from its plot timer.
     void replotIfDirty();
-    void updateMetrics();
 
     // Called by DeviceDetailWindow when the device finishes initialization,
     // so buttons can be enabled and the VFO ranges can be set from SR.

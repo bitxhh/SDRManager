@@ -26,8 +26,11 @@ struct WaterfallSettings {
     void save() const;
 };
 
+// Explicit org/app names: the application never calls setOrganizationName(),
+// and a default-constructed QSettings with an empty organization reads and
+// writes nothing on Windows — settings would silently not persist.
 inline WaterfallSettings WaterfallSettings::load() {
-    QSettings s;
+    QSettings s(QStringLiteral("SDRManager"), QStringLiteral("SDRManager"));
     WaterfallSettings w;
     w.enabled      = s.value("waterfall/enabled",      w.enabled).toBool();
     w.fftSize      = s.value("waterfall/fftSize",      w.fftSize).toInt();
@@ -55,7 +58,7 @@ inline WaterfallSettings WaterfallSettings::load() {
 }
 
 inline void WaterfallSettings::save() const {
-    QSettings s;
+    QSettings s(QStringLiteral("SDRManager"), QStringLiteral("SDRManager"));
     s.setValue("waterfall/enabled",      enabled);
     s.setValue("waterfall/fftSize",      fftSize);
     s.setValue("waterfall/fps",          fps);

@@ -10,11 +10,15 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -29,6 +33,11 @@ int decimalsForStep(double step) {
     double s = std::abs(step);
     while (d < 4 && std::abs(s - std::round(s)) > 1e-9) { s *= 10.0; ++d; }
     return d;
+}
+
+// Clamp to the supported range and force odd (symmetric linear-phase FIR).
+int sanitizeTaps(double v) {
+    return std::clamp(static_cast<int>(std::lround(v)), kMinFirTaps, kMaxFirTaps) | 1;
 }
 } // namespace
 
@@ -105,6 +114,10 @@ void DemodulatorPanel::buildUi() {
            "Enable 'Audio' in recording settings to activate."));
     audioCheck_->setEnabled(false);
 
+    settingsButton_ = new QPushButton("\u2699", row1);
+    settingsButton_->setFixedWidth(26);
+    settingsButton_->setToolTip("Filter settings (FIR taps)");
+
     removeButton_ = new QPushButton("\u2715", row1);
     removeButton_->setFixedWidth(26);
     removeButton_->setToolTip("Remove demodulator");
@@ -125,11 +138,12 @@ void DemodulatorPanel::buildUi() {
     hlay1->addWidget(filteredCheck_);
     hlay1->addWidget(audioCheck_);
     hlay1->addStretch();
+    hlay1->addWidget(settingsButton_);
     hlay1->addWidget(removeButton_);
 
     outer->addWidget(row1);
 
-    // в”Ђв”Ђ Row 2: status + IF level в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // в”Ђв”Ђ Row 2: statusв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     auto* row2  = new QWidget(this);
     auto* hlay2 = new QHBoxLayout(row2);
     hlay2->setContentsMargins(0, 0, 0, 0);
@@ -137,12 +151,7 @@ void DemodulatorPanel::buildUi() {
     statusLabel_ = new QLabel(this);
     statusLabel_->setStyleSheet("color: gray; font-size: 11px;");
 
-    levelLabel_ = new QLabel(
-        "\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF", this);
-    levelLabel_->setStyleSheet("color: gray; font-size: 10px;");
-
     hlay2->addWidget(statusLabel_, 1);
-    hlay2->addWidget(levelLabel_);
     outer->addWidget(row2);
 
     // в”Ђв”Ђ Wiring в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -162,6 +171,9 @@ void DemodulatorPanel::buildUi() {
         volume_ = static_cast<float>(v) / 100.0f;
         if (audioOut_) audioOut_->setVolume(volume_);
     });
+
+    connect(settingsButton_, &QPushButton::clicked,
+            this, &DemodulatorPanel::openSettingsDialog);
 
     connect(removeButton_, &QPushButton::clicked, this, [this]() {
         emit removeRequested(slotIndex_);
@@ -420,6 +432,7 @@ void DemodulatorPanel::applyDemod() {
     // Push current param values into the handler before it's added to pipeline.
     for (const ParamControl& pc : params_)
         demodHandler_->setParam(pc.name, paramInternalValue(pc));
+    pushTapsToHandler();
 
     audioOut_ = new FmAudioOutput(this);
     audioOut_->setVolume(volume_);
@@ -546,8 +559,6 @@ void DemodulatorPanel::onStreamStarted() {
 // ---------------------------------------------------------------------------
 void DemodulatorPanel::onStreamStopped() {
     if (statusLabel_) statusLabel_->setText("");
-    if (levelLabel_)
-        levelLabel_->setText("\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF");
 
     // Close any recording handlers so their files are finalized. Ownership
     // of filteredHandler_ / audioHandler_ lives with the panel вЂ” the controller
@@ -583,6 +594,9 @@ DemodPanelSettings DemodulatorPanel::state() const {
         if (pc.spin)       s.params.insert(pc.name, pc.spin->value());
         else if (pc.combo) s.params.insert(pc.name, pc.combo->currentData().toDouble());
     }
+    s.params.insert(QString::fromLatin1(ModemHandler::kFir1TapsKey), fir1Taps_);
+    s.params.insert(QString::fromLatin1(ModemHandler::kFir2TapsKey), fir2Taps_);
+    s.params.insert(QString::fromLatin1(ModemHandler::kChanTapsKey), chanTaps_);
     return s;
 }
 
@@ -606,6 +620,16 @@ void DemodulatorPanel::applyState(const DemodPanelSettings& s) {
 
     if (filteredCheck_) { QSignalBlocker b(filteredCheck_); filteredCheck_->setChecked(s.recordFiltered); }
     if (audioCheck_)    { QSignalBlocker b(audioCheck_);    audioCheck_->setChecked(s.recordAudio); }
+
+    // Tap counts must be in place before the mode is selected: onModeChanged
+    // may build the demodulator immediately while streaming.
+    const auto restoreTaps = [&s](const char* key, int& member) {
+        const auto it = s.params.find(QString::fromLatin1(key));
+        if (it != s.params.end()) member = sanitizeTaps(it.value());
+    };
+    restoreTaps(ModemHandler::kFir1TapsKey, fir1Taps_);
+    restoreTaps(ModemHandler::kFir2TapsKey, fir2Taps_);
+    restoreTaps(ModemHandler::kChanTapsKey, chanTaps_);
 
     // Select the mode вЂ” onModeChanged rebuilds the param row with defaults,
     // then we overwrite those defaults with any saved values below.
@@ -631,8 +655,82 @@ void DemodulatorPanel::applyState(const DemodPanelSettings& s) {
 }
 
 // ---------------------------------------------------------------------------
-void DemodulatorPanel::updateMetrics() {
-    if (!levelLabel_ || !demodHandler_) return;
-    const double ifRms = demodHandler_->ifRms();
-    levelLabel_->setText(QString("IF %1").arg(ifRms, 0, 'f', 3));
+bool DemodulatorPanel::modeUsesChanTaps(const QString& mode) {
+    return mode == QLatin1String("USB") || mode == QLatin1String("LSB")
+        || mode == QLatin1String("CW");
+}
+
+void DemodulatorPanel::pushTapsToHandler() {
+    if (!demodHandler_) return;
+    demodHandler_->setParam(QString::fromLatin1(ModemHandler::kFir1TapsKey), fir1Taps_);
+    demodHandler_->setParam(QString::fromLatin1(ModemHandler::kFir2TapsKey), fir2Taps_);
+    demodHandler_->setParam(QString::fromLatin1(ModemHandler::kChanTapsKey), chanTaps_);
+}
+
+void DemodulatorPanel::openSettingsDialog() {
+    const QString mode   = currentMode();
+    const bool    isOff  = mode.isEmpty() || mode == QLatin1String("Off");
+    const bool    chanOn = isOff || modeUsesChanTaps(mode);
+    const bool    fir2On = isOff || !modeUsesChanTaps(mode);
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString("Demod %1 — filter settings").arg(slotIndex_ + 1));
+    auto* form = new QFormLayout(&dlg);
+
+    const auto makeSpin = [&dlg](int value, const QString& tip) {
+        auto* sp = new QSpinBox(&dlg);
+        sp->setRange(kMinFirTaps, kMaxFirTaps);
+        sp->setSingleStep(2);
+        sp->setValue(value);
+        sp->setToolTip(tip);
+        return sp;
+    };
+
+    auto* fir1Spin = makeSpin(fir1Taps_,
+        "Channel-select FIR before the first decimation (runs at the full sample rate)");
+    form->addRow("FIR1 taps:", fir1Spin);
+
+    QSpinBox* fir2Spin = nullptr;
+    if (fir2On) {
+        fir2Spin = makeSpin(fir2Taps_, "Post-demodulation audio FIR (FM/NFM/AM/SAM)");
+        form->addRow("FIR2 taps:", fir2Spin);
+    }
+    QSpinBox* chanSpin = nullptr;
+    if (chanOn) {
+        chanSpin = makeSpin(chanTaps_, "Channel decimator FIR (USB/LSB/CW)");
+        form->addRow("Channel taps:", chanSpin);
+    }
+
+    auto* hint = new QLabel(
+        "More taps → sharper filter, but more CPU and latency.\n"
+        "FIR1 runs at the full sample rate — keep it small in Debug builds.\n"
+        "Even values are rounded up to odd. Applying restarts the demodulator.",
+        &dlg);
+    hint->setWordWrap(true);
+    form->addRow(hint);
+
+    auto* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults,
+        &dlg);
+    form->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    connect(buttons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked,
+            &dlg, [=]() {
+        fir1Spin->setValue(kDefaultFir1Taps);
+        if (fir2Spin) fir2Spin->setValue(kDefaultFir2Taps);
+        if (chanSpin) chanSpin->setValue(kDefaultChanTaps);
+    });
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const int newFir1 = sanitizeTaps(fir1Spin->value());
+    const int newFir2 = fir2Spin ? sanitizeTaps(fir2Spin->value()) : fir2Taps_;
+    const int newChan = chanSpin ? sanitizeTaps(chanSpin->value()) : chanTaps_;
+    if (newFir1 == fir1Taps_ && newFir2 == fir2Taps_ && newChan == chanTaps_) return;
+
+    fir1Taps_ = newFir1;
+    fir2Taps_ = newFir2;
+    chanTaps_ = newChan;
+    pushTapsToHandler();
 }

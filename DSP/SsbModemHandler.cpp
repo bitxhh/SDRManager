@@ -29,7 +29,9 @@ SsbModemHandler::createDemodulator(double sampleRateHz, double offsetHz,
         return it != params.end() ? it->second : def;
     };
     const double bw = get(QStringLiteral("Bandwidth"), 2'800.0);
-    return std::make_unique<SsbModem>(sampleRateHz, offsetHz, sideband_, bw);
+    return std::make_unique<SsbModem>(sampleRateHz, offsetHz, sideband_, bw,
+        tapsParam(params, kFir1TapsKey, kDefaultFir1Taps),
+        tapsParam(params, kChanTapsKey, kDefaultChanTaps));
 }
 
 void SsbModemHandler::applyParam(ChannelModem& dem,

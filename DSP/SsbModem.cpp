@@ -6,8 +6,6 @@
 #include <string>
 
 namespace {
-// Channel-select decimator taps (runs at IF rate, sharp SSB skirt).
-constexpr int kChanTaps    = 255;
 // Hilbert transformer taps (odd → Type III integer group delay).
 constexpr int kHilbertTaps = 127;
 }
@@ -18,13 +16,17 @@ constexpr int kHilbertTaps = 127;
 SsbModem::SsbModem(double inputSampleRateHz,
                    double stationOffsetHz,
                    int    sideband,
-                   double bandwidthHz)
+                   double bandwidthHz,
+                   int    fir1Taps,
+                   int    chanTaps)
     : ChannelModem(inputSampleRateHz, stationOffsetHz,
                    100'000.0,         // FIR1 cutoff = fixed 100 kHz (wide anti-alias)
                    bandwidthHz,       // FIR2 cutoff (unused; produceAudio overridden)
-                   20'000.0)          // min IF for SSB
+                   20'000.0,          // min IF for SSB
+                   fir1Taps)
     , sideband_(sideband >= 0 ? +1 : -1)
     , name_(sideband >= 0 ? "UsbModem" : "LsbModem")
+    , chanTaps_(chanTaps)
 {
     bandwidth_ = std::clamp(bandwidthHz, 1'000.0, audioSR_ / 2.0 * 0.9);
     decim_     = std::max(1, static_cast<int>(std::round(ifSR_ / audioSR_)));
@@ -42,7 +44,8 @@ SsbModem::SsbModem(double inputSampleRateHz,
             + " decim=" + std::to_string(decim_)
             + " audio=" + std::to_string(static_cast<int>(audioSR_)) + " Hz"
             + " BW=" + std::to_string(static_cast<int>(bandwidth_)) + " Hz"
-            + " sideband=" + (sideband_ > 0 ? std::string("USB") : std::string("LSB")));
+            + " sideband=" + (sideband_ > 0 ? std::string("USB") : std::string("LSB"))
+            + " taps FIR1=" + std::to_string(fir1Taps) + " chan=" + std::to_string(chanTaps_));
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +53,7 @@ SsbModem::SsbModem(double inputSampleRateHz,
 // ---------------------------------------------------------------------------
 void SsbModem::rebuildDecimator() {
     const double cutoffNorm = bandwidth_ / ifSR_;
-    chan_.setup(dsp::designLowpassFir(kChanTaps, cutoffNorm), decim_);
+    chan_.setup(dsp::designLowpassFir(chanTaps_, cutoffNorm), decim_);
 }
 
 // ---------------------------------------------------------------------------

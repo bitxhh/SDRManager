@@ -198,10 +198,6 @@ void CombinedRxController::removeExtraHandler(IPipelineHandler* h) {
         extraHandlers_.end());
 }
 
-double CombinedRxController::ifRms() const {
-    return demodHandler_ ? demodHandler_->ifRms() : 0.0;
-}
-
 double CombinedRxController::calibratePhase() {
     return combiner_ ? combiner_->calibrateNow() : 0.0;
 }

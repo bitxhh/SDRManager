@@ -3,6 +3,7 @@
 #include "DspUtils.h"
 
 #include <QVector>
+#include <cmath>
 #include <complex>
 #include <vector>
 
@@ -16,6 +17,12 @@ inline constexpr int kDefaultFir1Taps = 31;
 inline constexpr int kDefaultFir1Taps = 255;
 #endif
 inline constexpr int kDefaultFir2Taps = 255;
+// SSB/CW narrow channel-select decimator (replaces FIR2 in those modems).
+inline constexpr int kDefaultChanTaps = 255;
+
+// User-configurable tap-count limits (odd counts only — symmetric linear phase).
+inline constexpr int kMinFirTaps = 15;
+inline constexpr int kMaxFirTaps = 1023;
 
 // ---------------------------------------------------------------------------
 // ChannelModem — common DSP pipeline for all demodulators.
@@ -44,7 +51,6 @@ public:
     [[nodiscard]] double ifSampleRate()    const { return ifSR_;    }
     [[nodiscard]] int    decimation1()     const { return D1_;      }
     [[nodiscard]] double bandwidth()       const { return bandwidth_; }
-    [[nodiscard]] double ifRms()           const { return ifRmsOut_; }
 
 protected:
     ChannelModem(double inputSR, double stationOffsetHz,
@@ -55,7 +61,7 @@ protected:
 
     // Subclass implements: demodulate one IF-rate sample → audio sample.
     // ifSample: complex signal after FIR1 + D1 decimation.
-    // ifPower:  |ifSample|² (already computed for diagnostics).
+    // ifPower:  |ifSample|².
     virtual double demodulateIF(std::complex<double> ifSample, double ifPower) = 0;
 
     // Called after base resets state in setOffset(). Override to reset
@@ -94,15 +100,6 @@ private:
     // ── DSP blocks ───────────────────────────────────────────────────────────
     dsp::DcBlocker    dc_;
     dsp::Nco          nco_;
-
-    // ── IF power ─────────────────────────────────────────────────────────────
-    double ifPowerAvg_{0.0};
-    static constexpr double kPowerAlpha = 0.01;
-
-    double ifRmsOut_{0.0};
-
-    int diagBlockCount_{0};
-    static constexpr int kDiagInterval = 4096;
 
     // ── Stage-1 FIR (complex) ────────────────────────────────────────────────
     std::vector<double>               fir1Coeffs_;

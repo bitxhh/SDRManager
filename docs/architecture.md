@@ -72,7 +72,7 @@ DSP/                Signal processing
   IModem.h                   Modem contract: name, param descriptors, makeModulator()
   IModulator.h               TX engine interface (audio → I/Q); no impls yet
   ChannelModem.h/.cpp        Common engine base: DC blocker, NCO, FIR, decimate
-  ModemHandler.h/.cpp        Common handler base (IModem): IF RMS metrics, param dispatch
+  ModemHandler.h/.cpp        Common handler base (IModem): param dispatch
   ModemRegistry.h/.cpp       Factory registry: mode name → ModemHandler*
   ModemTypes.h               modem::ParamDesc (SpinParam/ComboParam) for UI auto-build
   FmModem.h/.cpp             WBFM demodulator engine (+ de-emphasis)
@@ -282,7 +282,7 @@ TxController::startTx()
 **DemodulatorPanel** (one per active demodulator slot):
 - Mode selector: Off / FM / NFM / AM / SAM / USB / LSB / CW (hot-swap mid-stream)
 - VFO freq spinbox (offset from LO); per-mode parameters auto-built from `modem::ParamDesc`
-- Volume slider, IF RMS level indicator
+- Volume slider
 - Filtered .cf32 recording checkbox, Audio .wav recording checkbox
 - × close button removes the slot
 

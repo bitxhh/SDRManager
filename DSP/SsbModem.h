@@ -24,7 +24,9 @@ public:
     explicit SsbModem(double inputSampleRateHz,
                       double stationOffsetHz,
                       int    sideband,
-                      double bandwidthHz = 2'800.0);
+                      double bandwidthHz = 2'800.0,
+                      int    fir1Taps    = kDefaultFir1Taps,
+                      int    chanTaps    = kDefaultChanTaps);
 
     void setBandwidth(double bandwidthHz);
 
@@ -42,6 +44,7 @@ private:
     int         sideband_;         // +1 USB, -1 LSB
     int         decim_;            // ifSR_ / audioSR_
     const char* name_;
+    int         chanTaps_;         // channel-select decimator taps
 
     dsp::FirComplexDecimator chan_;   // channel select + decimate to audio rate
     dsp::FirReal             hilbert_; // 90° phase shift on Q

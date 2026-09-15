@@ -14,7 +14,9 @@ class AmModem : public ChannelModem {
 public:
     explicit AmModem(double inputSampleRateHz,
                      double stationOffsetHz,
-                     double bandwidthHz = 5'000.0);
+                     double bandwidthHz = 5'000.0,
+                     int    fir1Taps    = kDefaultFir1Taps,
+                     int    fir2Taps    = kDefaultFir2Taps);
 
     void setBandwidth(double bandwidthHz);
 

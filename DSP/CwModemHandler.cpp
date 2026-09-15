@@ -35,7 +35,9 @@ CwModemHandler::createDemodulator(double sampleRateHz, double offsetHz,
     };
     const double bw    = get(QStringLiteral("Bandwidth"), 500.0);
     const double pitch = get(QStringLiteral("Pitch"),     700.0);
-    return std::make_unique<CwModem>(sampleRateHz, offsetHz, bw, pitch);
+    return std::make_unique<CwModem>(sampleRateHz, offsetHz, bw, pitch,
+        tapsParam(params, kFir1TapsKey, kDefaultFir1Taps),
+        tapsParam(params, kChanTapsKey, kDefaultChanTaps));
 }
 
 void CwModemHandler::applyParam(ChannelModem& dem,

@@ -22,7 +22,9 @@ public:
     explicit SamModem(double inputSampleRateHz,
                       double stationOffsetHz,
                       double bandwidthHz  = 5'000.0,
-                      double pllBwHz      = 100.0);
+                      double pllBwHz      = 100.0,
+                      int    fir1Taps     = kDefaultFir1Taps,
+                      int    fir2Taps     = kDefaultFir2Taps);
 
     void setBandwidth(double bandwidthHz);
     void setPllBandwidth(double pllBwHz);

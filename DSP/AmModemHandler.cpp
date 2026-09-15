@@ -24,7 +24,9 @@ AmModemHandler::createDemodulator(double sampleRateHz, double offsetHz,
                                   const std::map<QString, double>& params) {
     auto it = params.find(QStringLiteral("Bandwidth"));
     const double bw = (it != params.end()) ? it->second : 5'000.0;
-    return std::make_unique<AmModem>(sampleRateHz, offsetHz, bw);
+    return std::make_unique<AmModem>(sampleRateHz, offsetHz, bw,
+        tapsParam(params, kFir1TapsKey, kDefaultFir1Taps),
+        tapsParam(params, kFir2TapsKey, kDefaultFir2Taps));
 }
 
 void AmModemHandler::applyParam(ChannelModem& dem,

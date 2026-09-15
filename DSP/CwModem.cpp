@@ -5,22 +5,21 @@
 #include <cmath>
 #include <string>
 
-namespace {
-// Narrow channel-select decimator taps (steep skirt for CW selectivity).
-constexpr int kChanTaps = 255;
-}
-
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
 CwModem::CwModem(double inputSampleRateHz,
                  double stationOffsetHz,
                  double bandwidthHz,
-                 double pitchHz)
+                 double pitchHz,
+                 int    fir1Taps,
+                 int    chanTaps)
     : ChannelModem(inputSampleRateHz, stationOffsetHz,
                    100'000.0,         // FIR1 cutoff = fixed 100 kHz (wide anti-alias)
                    bandwidthHz,       // FIR2 cutoff (unused; produceAudio overridden)
-                   20'000.0)          // min IF for CW
+                   20'000.0,          // min IF for CW
+                   fir1Taps)
+    , chanTaps_(chanTaps)
 {
     bandwidth_ = std::clamp(bandwidthHz, 50.0, audioSR_ / 2.0 * 0.9);
     pitchHz_   = std::clamp(pitchHz, 300.0, 1'200.0);
@@ -36,7 +35,8 @@ CwModem::CwModem(double inputSampleRateHz,
             + " decim=" + std::to_string(decim_)
             + " audio=" + std::to_string(static_cast<int>(audioSR_)) + " Hz"
             + " BW=" + std::to_string(static_cast<int>(bandwidth_)) + " Hz"
-            + " pitch=" + std::to_string(static_cast<int>(pitchHz_)) + " Hz");
+            + " pitch=" + std::to_string(static_cast<int>(pitchHz_)) + " Hz"
+            + " taps FIR1=" + std::to_string(fir1Taps) + " chan=" + std::to_string(chanTaps_));
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ CwModem::CwModem(double inputSampleRateHz,
 // ---------------------------------------------------------------------------
 void CwModem::rebuildFilter() {
     const double cutoffNorm = (bandwidth_ / 2.0) / ifSR_;
-    chan_.setup(dsp::designLowpassFir(kChanTaps, cutoffNorm), decim_);
+    chan_.setup(dsp::designLowpassFir(chanTaps_, cutoffNorm), decim_);
 }
 
 // ---------------------------------------------------------------------------

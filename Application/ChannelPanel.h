@@ -23,14 +23,13 @@ class ClassifierController;
 // ChannelPanel — self-contained per-channel QWidget.
 //
 // Owns: FFT plot, frequency spin/slider, gain slider, demod controls (FM/AM),
-// VFO spin, level indicator, recording checkboxes, classifier toggle.
+// VFO spin, recording checkboxes, classifier toggle.
 //
 // Call setRxController() to wire it to an RxController (and recreate
 // the embedded ClassifierController). Must be called before startStream.
 //
 // replotIfDirty() — called from DDW's plotTimer, 20fps max.
 // buildStreamConfig() — assembles StreamConfig for RxController::startStream().
-// updateMetrics()    — called from DDW's metricsTimer (every 500ms).
 // ---------------------------------------------------------------------------
 class ChannelPanel : public QWidget {
     Q_OBJECT
@@ -59,9 +58,6 @@ public:
 
     // Called by DDW plotTimer (50ms) — replots only if new FFT data arrived.
     void replotIfDirty();
-
-    // Called by DDW metricsTimer (500ms) — updates SNR bar.
-    void updateMetrics();
 
     // Called by DDW startStream / stopStream.
     void onStreamStarted();
@@ -125,7 +121,6 @@ private:
     QSlider*        demodVolSlider_{nullptr};
     QLabel*         demodVolLabel_{nullptr};
     QLabel*         demodStatusLabel_{nullptr};
-    QLabel*         demodLevelLabel_{nullptr};
 
     QLabel*         fmBwLabel_{nullptr};
     QDoubleSpinBox* fmBwSpin_{nullptr};

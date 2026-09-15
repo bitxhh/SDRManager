@@ -2,6 +2,7 @@
 #include "Logger.h"
 
 #include <algorithm>
+#include <cmath>
 #include <QtConcurrent/QtConcurrent>
 
 DeviceController::DeviceController(std::shared_ptr<IDevice> device, QObject* parent)
@@ -82,11 +83,25 @@ void DeviceController::setFrequencyChannel(ChannelDescriptor ch, double freqMHz)
     }
 }
 
-void DeviceController::reconfigureChannels(const QList<ChannelDescriptor>& channels) {
-    (void)QtConcurrent::run([this, channels]() {
+void DeviceController::reconfigureChannels(const QList<ChannelDescriptor>& channels,
+                                           const QMap<int, double>& rxGainsDb) {
+    (void)QtConcurrent::run([this, channels, rxGainsDb]() {
         try {
             emit progressChanged(0, "Reconfiguring channels…");
             device_->reconfigureChannels(channels);
+
+            // Newly enabled channels come up at the driver default gain (0 dB on
+            // Lime) — push the UI value. setGain() re-calibrates the channel.
+            for (const auto& ch : channels) {
+                if (ch.direction != ChannelDescriptor::RX || !rxGainsDb.contains(ch.channelIndex))
+                    continue;
+                const double dB = rxGainsDb.value(ch.channelIndex);
+                if (std::abs(device_->gain(ch) - dB) > 0.5) {
+                    emit progressChanged(50, QString("Applying RX%1 gain…").arg(ch.channelIndex));
+                    device_->setGain(ch, dB);
+                }
+            }
+
             emit sampleRateChanged(device_->sampleRate());
             emit progressChanged(100, QString("Ready — %1 Hz").arg(device_->sampleRate(), 0, 'f', 0));
             emit deviceInitialized();
@@ -96,8 +111,9 @@ void DeviceController::reconfigureChannels(const QList<ChannelDescriptor>& chann
     });
 }
 
-void DeviceController::autoOpen(const QList<ChannelDescriptor>& channels, double sampleRateHz) {
-    (void)QtConcurrent::run([this, channels, sampleRateHz]() {
+void DeviceController::autoOpen(const QList<ChannelDescriptor>& channels, double sampleRateHz,
+                                const QMap<int, double>& rxGainsDb) {
+    (void)QtConcurrent::run([this, channels, sampleRateHz, rxGainsDb]() {
         try {
             emit progressChanged(0, "Initializing…");
             device_->init(channels);
@@ -121,8 +137,17 @@ void DeviceController::autoOpen(const QList<ChannelDescriptor>& channels, double
             } else {
                 for (int i = 0; i < rxChs.size(); ++i) {
                     const int pct = (rxChs.size() == 1) ? 30 : 30 + i * 35;
-                    emit progressChanged(pct, QString("Calibrating RX%1…").arg(rxChs[i].channelIndex));
-                    device_->calibrate({rxChs[i]}, -1.0);
+                    const int idx = rxChs[i].channelIndex;
+                    emit progressChanged(pct, QString("Calibrating RX%1…").arg(idx));
+                    // Calibration is gain-dependent, so the saved gain must be in
+                    // the chip before LMS_Calibrate. On Lime, setGain() in Ready
+                    // state calibrates the channel itself — calling calibrate()
+                    // afterwards would just repeat it. Soapy/File: calibrate() is
+                    // a no-op, setGain() is all that matters.
+                    if (rxGainsDb.contains(idx))
+                        device_->setGain(rxChs[i], rxGainsDb.value(idx));
+                    else
+                        device_->calibrate({rxChs[i]}, -1.0);
                 }
             }
 

@@ -16,9 +16,11 @@
 // Стрим: один канал RX0, формат CS16 (SoapyRTLSDR отдаёт (CU8-128)*256,
 // т.е. полную шкалу ±32768 — совпадает с нормировкой /32768 в RxWorker).
 //
-// setFrequency() на живом стриме НЕ эмитирует retuned(): у SoapyDevice нет
-// park-handshake, а обработчики retuned сбрасывают DSP-состояние в
-// DirectConnection и гонялись бы с воркером.
+// setFrequency() на живом стриме только запоминает значение в
+// pendingFrequency_; реальный тюнинг выполняет readBlock() в потоке воркера
+// (см. docs/hardware.md, "Pending frequency via atomic").
+// retuned() НЕ эмитируется: у SoapyDevice нет park-handshake, а обработчики
+// retuned сбрасывают DSP-состояние в DirectConnection и гонялись бы с воркером.
 // ---------------------------------------------------------------------------
 class SoapyDevice : public IDevice {
     Q_OBJECT
@@ -66,6 +68,7 @@ public:
 
 private:
     void setState(DeviceState s);
+    void applyPendingFrequency();   // поток воркера
     [[nodiscard]] QString soapyError() const;
 
     QString makeArgs_;   // строка для SoapySDRDevice_makeStrArgs ("driver=rtlsdr,...")
@@ -87,6 +90,7 @@ private:
     std::atomic<double> sampleRateHz_{2'000'000.0};
     std::atomic<double> frequencyHz_{102e6};
     std::atomic<double> gainDb_{0.0};
+    std::atomic<double> pendingFrequency_{-1.0};   // < 0 — нет отложенной
 
     std::atomic<uint64_t> samplesDelivered_{0};
 

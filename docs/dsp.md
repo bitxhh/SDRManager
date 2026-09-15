@@ -24,7 +24,7 @@ float I/Q → DC blocker (IIR HP) → NCO freq-shift
 |-----------|-------|-------|
 | IF target | 500 kHz | D1 = round(inputSR / 500000) |
 | Audio SR | 50 kHz | IF / D2 |
-| FIR1 taps | 255 (Release) / 31 (Debug) | -55 dB at Nyquist |
+| FIR1 taps | 255 (Release) / 31 (Debug) default; per-demod ⚙ dialog, 15–1023 odd | -55 dB at Nyquist |
 | FIR1 bandwidth | 150 kHz default | Adjustable 50–225 kHz |
 | FIR2 taps | 255 | Rejects FM stereo subcarrier (23–53 kHz) |
 | FM max deviation | ±75 kHz | demodGain = ifSR / (2π × 75000) |

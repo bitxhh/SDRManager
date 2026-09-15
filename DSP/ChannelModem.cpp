@@ -166,20 +166,12 @@ QVector<float> ChannelModem::pushBlock(const float* iq, int count) {
 
         const auto filtered1 = fir1Compute();
 
-        // ── 6. IF power (diagnostic) ─────────────────────────────────────────
+        // ── 6. IF power |IF|² (AM envelope etc.) ─────────────────────────────
         const double ifPower = filtered1.real() * filtered1.real()
                              + filtered1.imag() * filtered1.imag();
-        ifPowerAvg_ = (1.0 - kPowerAlpha) * ifPowerAvg_ + kPowerAlpha * ifPower;
 
         // ── 7-10. Subclass audio production (demod → FIR2 → decimate D2) ──────
         produceAudio(filtered1, ifPower, audio);
-    }
-
-    // ── Diagnostics ──────────────────────────────────────────────────────────
-    diagBlockCount_ += numSamples / D1_;
-    if (diagBlockCount_ >= kDiagInterval) {
-        diagBlockCount_ = 0;
-        ifRmsOut_ = std::sqrt(ifPowerAvg_);
     }
 
     return audio;

@@ -103,27 +103,16 @@ TEST_CASE("FIR design: stopband attenuation >= 40 dB", "[fir]") {
 // T2 — DC blocker: constant I/Q input converges to near zero
 // ─────────────────────────────────────────────────────────────────────────────
 TEST_CASE("DC blocker removes constant I/Q offset", "[dcblock]") {
-    // Pure DC input: I=0.8, Q=0.0  →  discriminator should not see a signal
-    // We measure IF power after 3 blocks: it should be much lower than if the
-    // DC were not removed (which would saturate the discriminator).
-    constexpr double kSR = 4'000'000.0;
-    FmModem dem(kSR, 0.0, 75e-6, 100'000.0);
+    // Pure DC input near full scale: I=0.8, Q=0.0. The one-pole high-pass
+    // (alpha = 0.9999, τ ≈ 10 000 samples) must drive the output to ~0.
+    dsp::DcBlocker dc;
+    const std::complex<double> in(0.8, 0.0);
 
-    constexpr int kBlockSize = 16384;
-    // DC at nearly full scale
-    QVector<float> dcBlock(kBlockSize * 2, 0.0f);
-    for (int i = 0; i < kBlockSize; ++i) {
-        dcBlock[2 * i]     = 0.79f;   // I ≈ 0.79
-        dcBlock[2 * i + 1] = 0.0f;
-    }
+    std::complex<double> out;
+    for (int i = 0; i < 100'000; ++i) out = dc.process(in);
 
-    // Run 3 blocks — DC blocker needs a few samples to settle
-    for (int b = 0; b < 3; ++b) std::ignore = dem.pushBlock(dcBlock.constData(), kBlockSize);
-
-    // After settling, IF RMS should be very small (DC is blocked)
-    const double ifRms = dem.ifRms();
-    INFO("IF RMS after DC block: " << ifRms);
-    CHECK(ifRms < 0.05);
+    INFO("|out| after 100k samples of DC: " << std::abs(out));
+    CHECK(std::abs(out) < 1e-3);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -194,32 +183,5 @@ TEST_CASE("Full chain: audio SR is ~50 kHz for all supported input rates", "[fm]
         // For all supported rates, IF ≈ 500 kHz → audio ≈ 50 kHz
         CHECK_THAT(dem.audioSampleRate(), Catch::Matchers::WithinAbs(50'000.0, 5'000.0));
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// T4 — FIR1 + D1: out-of-band tone is attenuated after filtering
-// ─────────────────────────────────────────────────────────────────────────────
-TEST_CASE("Out-of-band tone is attenuated by FIR1", "[fir][decimation]") {
-    constexpr double kSR   = 4'000'000.0;
-    constexpr int    kN    = 6 * 16384;
-
-    // In-band: 50 kHz (well within BW=100 kHz)
-    FmModem dem_in(kSR, 0.0, 75e-6, 100'000.0);
-    const auto iq_in    = makeFmSignal(kSR, kN, 1'000.0, 50'000.0);
-    const auto audio_in = runDemod(dem_in, iq_in);
-
-    // Out-of-band: we modulate at 1 kHz but with deviation 300 kHz
-    // — most energy lands outside the 100 kHz BW and gets cut by FIR1.
-    // We compare IF RMS: in-band should be much larger than out-of-band after filter.
-    FmModem dem_out(kSR, 0.0, 75e-6, 100'000.0);
-    const auto iq_out    = makeFmSignal(kSR, kN, 1'000.0, 300'000.0);
-    runDemod(dem_out, iq_out);
-
-    INFO("In-band  IF RMS: " << dem_in.ifRms());
-    INFO("Out-of-band IF RMS: " << dem_out.ifRms());
-
-    // In-band signal should have higher IF power after FIR1 filtering.
-    // Ratio is modest in Debug (31-tap FIR); Release (255-tap) gives > 1.5×.
-    CHECK(dem_in.ifRms() > dem_out.ifRms() * 1.1);
 }
 

@@ -849,10 +849,6 @@ void RadioMonitorPage::replotIfDirty() {
     fftPlot_->replot(QCustomPlot::rpQueuedReplot);
 }
 
-void RadioMonitorPage::updateMetrics() {
-    for (auto* p : panels_) p->updateMetrics();
-}
-
 // ---------------------------------------------------------------------------
 // Recording settings
 // ---------------------------------------------------------------------------
@@ -894,7 +890,8 @@ void RadioMonitorPage::pushRecordingContextToPanels(const QString& timestamp,
 }
 
 void RadioMonitorPage::loadRecordingSettings() {
-    QSettings s;
+    // Explicit org/app — default QSettings is a no-op without setOrganizationName().
+    QSettings s(QStringLiteral("SDRManager"), QStringLiteral("SDRManager"));
     const QString defaultDir = QDir(QStandardPaths::writableLocation(
         QStandardPaths::DocumentsLocation)).filePath("stand_recordings");
     recordingSettings_.outputDir =
@@ -913,7 +910,7 @@ void RadioMonitorPage::loadRecordingSettings() {
 }
 
 void RadioMonitorPage::saveRecordingSettings() const {
-    QSettings s;
+    QSettings s(QStringLiteral("SDRManager"), QStringLiteral("SDRManager"));
     s.setValue("recording/outputDir",     recordingSettings_.outputDir);
     s.setValue("recording/rawPerChannel", recordingSettings_.recordRawPerChannel);
     s.setValue("recording/combined",      recordingSettings_.recordCombined);

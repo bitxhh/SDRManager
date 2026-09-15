@@ -21,7 +21,6 @@ FM/NFM/AM/SAM/SSB/CW demodulation, coherent dual-channel combining, I/Q recordin
   - raw I/Q (`.cf32`), per channel or combined
   - band-filtered I/Q, per demodulator
   - demodulated audio (`.wav`)
-- **Signal level indicator**: IF RMS level for each demodulator
 - **Per-device settings persistence**: sample rate, gains, frequency and demodulator panels are restored on the next launch
 - **Transmit test tone**: a TX0 sinusoid generator
 - **Optional AI modulation classifier**: a Python service connected over a local TCP socket (`Python/classifier_service.py`)

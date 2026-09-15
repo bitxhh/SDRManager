@@ -82,5 +82,27 @@ private:
     static constexpr float kAgcMin     = 0.1f;    // floor — allows reducing gain when input is already loud
     static constexpr float kAgcMax     = 50.0f;   // ceiling — don't amplify pure noise
 
+    // ── Latency control ───────────────────────────────────────────────────────
+    // push() runs on the main thread: a UI stall starves the sink, then the
+    // queued blocks arrive in a burst and pin the 300 ms buffer full — every
+    // later hiccup drops a whole block (choppy audio that never recovers).
+    //   • fill > kHighWaterMs → drop blocks until fill ≤ kTargetMs (one clean
+    //     skip instead of endless partial writes);
+    //   • never write more than bytesFree() (whole frames only);
+    //   • slow resample-ratio trim (±kMaxRateTrim) pulls the smoothed fill
+    //     toward kTargetMs, absorbing SDR-crystal vs sound-card clock drift.
+    static constexpr int    kTargetMs    = 100;
+    static constexpr int    kHighWaterMs = 200;
+    static constexpr double kMaxRateTrim = 0.002;   // 0.2 % ≈ 3.5 cents
+    static constexpr double kFillAvgAlpha = 0.02;   // EMA per block (~0.4 s)
+
+    bool    draining_{false};
+    double  fillMsAvg_{-1.0};      // < 0 — not initialised
+    qint64  droppedBytes_{0};      // since last watchdog report
+    qint64  truncatedBytes_{0};    // since last watchdog report
+
+    [[nodiscard]] int frameBytes() const { return 2 * (outIsFloat_ ? 4 : 2); }
+    void writePcm(const char* data, qint64 bytes);
+
     bool openSink(double sampleRateHz);
 };

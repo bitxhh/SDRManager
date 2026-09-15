@@ -2,6 +2,7 @@
 #include "Logger.h"
 
 #include <algorithm>
+#include <chrono>
 #include <stdexcept>
 
 namespace {
@@ -128,6 +129,15 @@ void SoapyDevice::setFrequency(double hz) {
     const auto& a = soapy::api();
     std::lock_guard lock(apiMutex_);
 
+    // На живом стриме тюнинг (USB control transfer + I2C к тюнеру, десятки мс)
+    // откладывается в поток воркера: UI не блокируется, а серия шагов колеса
+    // схлопывается в один реальный тюнинг на блок.
+    if (stream_) {
+        pendingFrequency_ = hz;
+        frequencyHz_      = hz;
+        return;
+    }
+
     if (dev_ && a.setFrequency(dev_, soapy::kRx, 0, hz, nullptr) != 0)
         throw std::runtime_error("SoapyDevice: setFrequency failed: "
                                  + soapyError().toStdString());
@@ -192,13 +202,42 @@ void SoapyDevice::stopStream() {
         a.closeStream(dev_, stream_);
         stream_ = nullptr;
     }
+
+    // Частота, пришедшая после последнего readBlock, не должна потеряться.
+    const double hz = pendingFrequency_.exchange(-1.0);
+    if (hz > 0.0 && dev_ && a.setFrequency(dev_, soapy::kRx, 0, hz, nullptr) != 0)
+        LOG_WARN("SoapyDevice: deferred setFrequency failed: " + soapyError().toStdString());
+
     if (state_ == DeviceState::Streaming)
         setState(DeviceState::Ready);
+}
+
+void SoapyDevice::applyPendingFrequency() {
+    const double hz = pendingFrequency_.exchange(-1.0);
+    if (hz <= 0.0) return;
+
+    const auto& a = soapy::api();
+    std::lock_guard lock(apiMutex_);
+    if (!dev_) return;
+
+    const auto t0 = std::chrono::steady_clock::now();
+    if (a.setFrequency(dev_, soapy::kRx, 0, hz, nullptr) != 0) {
+        LOG_WARN("SoapyDevice: deferred setFrequency failed: " + soapyError().toStdString());
+        return;
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+    if (ms > 50)
+        LOG_CAT(LogCat::kStreamIo, LogLevel::Warning,
+                "SoapyDevice: setFrequency(" + std::to_string(hz) + ") took "
+                + std::to_string(ms) + " ms");
 }
 
 int SoapyDevice::readBlock(int16_t* buffer, int count, int timeoutMs) {
     const auto& a = soapy::api();
     if (!dev_ || !stream_) return -1;
+
+    applyPendingFrequency();
 
     void* buffs[1]    = {buffer};
     int   flags       = 0;

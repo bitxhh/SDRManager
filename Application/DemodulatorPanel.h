@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/DeviceSettings.h"
+#include "../DSP/ChannelModem.h"
 
 #include <QWidget>
 #include <QString>
@@ -31,7 +32,6 @@ public:
 
     void onStreamStarted();
     void onStreamStopped();
-    void updateMetrics();
 
     void setCenterFreqMHz(double mhz);
     void setSampleRateHz(double sr);
@@ -81,6 +81,13 @@ private:
     void buildUi();
     void emitVfoChanged();
 
+    // ⚙ dialog: FIR tap counts. Accepting rebuilds the live demodulator.
+    void openSettingsDialog();
+    // Pushes fir1Taps_/fir2Taps_/chanTaps_ into demodHandler_ (if any).
+    void pushTapsToHandler();
+    // True for modes whose post-demod filter is the channel decimator (SSB/CW).
+    [[nodiscard]] static bool modeUsesChanTaps(const QString& mode);
+
     // Rebuilds the parameter-widget row from the selected modem's descriptors.
     void rebuildParamWidgets(const QString& mode);
     // Internal (Hz-domain) value of one dynamic parameter control.
@@ -108,8 +115,13 @@ private:
     QSlider*        volumeSlider_{nullptr};
     QLabel*         volumeLabel_{nullptr};
     QLabel*         statusLabel_{nullptr};
-    QLabel*         levelLabel_{nullptr};
+    QPushButton*    settingsButton_{nullptr};
     QPushButton*    removeButton_{nullptr};
+
+    // FIR tap counts (odd, [kMinFirTaps, kMaxFirTaps]); edited via ⚙ dialog.
+    int fir1Taps_{kDefaultFir1Taps};
+    int fir2Taps_{kDefaultFir2Taps};   // FM/NFM/AM/SAM
+    int chanTaps_{kDefaultChanTaps};   // USB/LSB/CW
 
     // ── Dynamic per-modem parameter widgets ─────────────────────────────────
     // The row is rebuilt whenever the mode changes; no modem-specific UI code.

@@ -35,7 +35,9 @@ NfmModemHandler::createDemodulator(double sampleRateHz, double offsetHz,
     };
     const double bw  = get(QStringLiteral("Bandwidth"), 12'500.0);
     const double dev = get(QStringLiteral("Deviation"),  5'000.0);
-    return std::make_unique<NfmModem>(sampleRateHz, offsetHz, bw, dev);
+    return std::make_unique<NfmModem>(sampleRateHz, offsetHz, bw, dev,
+        tapsParam(params, kFir1TapsKey, kDefaultFir1Taps),
+        tapsParam(params, kFir2TapsKey, kDefaultFir2Taps));
 }
 
 void NfmModemHandler::applyParam(ChannelModem& dem,

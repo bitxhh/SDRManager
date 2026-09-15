@@ -23,7 +23,9 @@ public:
     explicit CwModem(double inputSampleRateHz,
                      double stationOffsetHz,
                      double bandwidthHz = 500.0,
-                     double pitchHz     = 700.0);
+                     double pitchHz     = 700.0,
+                     int    fir1Taps    = kDefaultFir1Taps,
+                     int    chanTaps    = kDefaultChanTaps);
 
     void setBandwidth(double bandwidthHz);
     void setPitch(double pitchHz);
@@ -40,7 +42,8 @@ private:
     void rebuildFilter();
 
     double pitchHz_;
-    int    decim_;   // ifSR_ / audioSR_
+    int    decim_;     // ifSR_ / audioSR_
+    int    chanTaps_;  // channel-select decimator taps
 
     dsp::FirComplexDecimator chan_;   // narrow channel select + decimate
     dsp::Nco                 bfo_;    // beat-frequency oscillator (sidetone)

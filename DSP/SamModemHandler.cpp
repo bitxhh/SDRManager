@@ -35,7 +35,9 @@ SamModemHandler::createDemodulator(double sampleRateHz, double offsetHz,
     };
     const double bw     = get(QStringLiteral("Bandwidth"), 5'000.0);
     const double pllBw  = get(QStringLiteral("PLL BW"),      100.0);
-    return std::make_unique<SamModem>(sampleRateHz, offsetHz, bw, pllBw);
+    return std::make_unique<SamModem>(sampleRateHz, offsetHz, bw, pllBw,
+        tapsParam(params, kFir1TapsKey, kDefaultFir1Taps),
+        tapsParam(params, kFir2TapsKey, kDefaultFir2Taps));
 }
 
 void SamModemHandler::applyParam(ChannelModem& dem,

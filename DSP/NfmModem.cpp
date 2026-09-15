@@ -11,11 +11,14 @@
 NfmModem::NfmModem(double inputSampleRateHz,
                    double stationOffsetHz,
                    double bandwidthHz,
-                   double maxDeviationHz)
+                   double maxDeviationHz,
+                   int    fir1Taps,
+                   int    fir2Taps)
     : ChannelModem(inputSampleRateHz, stationOffsetHz,
                    bandwidthHz / 2.0,   // FIR1 cutoff = half the channel width
                    4'000.0,             // FIR2 cutoff = 4 kHz voice audio
-                   100'000.0)           // min IF for NFM
+                   100'000.0,           // min IF for NFM
+                   fir1Taps, fir2Taps)
     , maxDeviation_(maxDeviationHz)
 {
     bandwidth_ = std::clamp(bandwidthHz, 6'000.0, ifSR_ * 0.9);

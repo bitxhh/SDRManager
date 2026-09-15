@@ -18,7 +18,9 @@ public:
     explicit NfmModem(double inputSampleRateHz,
                       double stationOffsetHz,
                       double bandwidthHz    = 12'500.0,
-                      double maxDeviationHz = 5'000.0);
+                      double maxDeviationHz = 5'000.0,
+                      int    fir1Taps       = kDefaultFir1Taps,
+                      int    fir2Taps       = kDefaultFir2Taps);
 
     // Full channel bandwidth (Hz). FIR1 cutoff = bandwidth/2.
     void setBandwidth(double bandwidthHz);

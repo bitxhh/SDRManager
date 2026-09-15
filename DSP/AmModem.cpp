@@ -10,11 +10,14 @@
 // ---------------------------------------------------------------------------
 AmModem::AmModem(double inputSampleRateHz,
                  double stationOffsetHz,
-                 double bandwidthHz)
+                 double bandwidthHz,
+                 int    fir1Taps,
+                 int    fir2Taps)
     : ChannelModem(inputSampleRateHz, stationOffsetHz,
                    100'000.0,         // FIR1 cutoff = fixed 100 kHz (wide anti-alias)
                    bandwidthHz,       // FIR2 cutoff = user bandwidth
-                   20'000.0)          // min IF for AM
+                   20'000.0,          // min IF for AM
+                   fir1Taps, fir2Taps)
 {
     bandwidth_ = std::clamp(bandwidthHz, 1'000.0, audioSR_ / 2.0 * 0.9);
 

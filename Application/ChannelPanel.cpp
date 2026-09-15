@@ -335,25 +335,6 @@ void ChannelPanel::buildUi() {
         });
     }
 
-    // ── Signal level indicator ────────────────────────────────────────────────
-    {
-        auto* row  = new QWidget(this);
-        auto* hlay = new QHBoxLayout(row);
-        hlay->setContentsMargins(0, 0, 0, 0);
-
-        demodLevelLabel_ = new QLabel(
-            "\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF", row);
-        demodLevelLabel_->setStyleSheet("color: gray; font-size: 10px;");
-        demodLevelLabel_->setToolTip(
-            "Signal level after demodulation.\n"
-            "Gray = weak / no station\n"
-            "Green = good signal");
-
-        hlay->addWidget(demodLevelLabel_);
-        hlay->addStretch();
-        layout->addWidget(row);
-    }
-
     // ── Demod status label ────────────────────────────────────────────────────
     demodStatusLabel_ = new QLabel(this);
     demodStatusLabel_->setStyleSheet("color: gray; font-size: 11px;");
@@ -671,16 +652,6 @@ void ChannelPanel::onStreamStarted() {
 
 void ChannelPanel::onStreamStopped() {
     if (demodStatusLabel_) demodStatusLabel_->setText("");
-    if (demodLevelLabel_)
-        demodLevelLabel_->setText("\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF\u25AF");
-}
-
-// ---------------------------------------------------------------------------
-void ChannelPanel::updateMetrics() {
-    if (!demodLevelLabel_) return;
-    if (!ctrl_ || !ctrl_->demodHandler()) return;
-    const double ifRms = ctrl_->ifRms();
-    demodLevelLabel_->setText(QString("IF %1").arg(ifRms, 0, 'f', 3));
 }
 
 void ChannelPanel::openRecordSettings()

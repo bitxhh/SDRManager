@@ -36,7 +36,9 @@ FmModemHandler::createDemodulator(double sampleRateHz, double offsetHz,
     };
     const double bw  = get(QStringLiteral("Bandwidth"),   150'000.0);
     const double tau = get(QStringLiteral("De-emphasis"),  75e-6);
-    return std::make_unique<FmModem>(sampleRateHz, offsetHz, tau, bw);
+    return std::make_unique<FmModem>(sampleRateHz, offsetHz, tau, bw,
+        tapsParam(params, kFir1TapsKey, kDefaultFir1Taps),
+        tapsParam(params, kFir2TapsKey, kDefaultFir2Taps));
 }
 
 void FmModemHandler::applyParam(ChannelModem& dem,

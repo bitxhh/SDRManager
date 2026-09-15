@@ -10,7 +10,7 @@ CMake + MinGW + Qt6.
 cmake --build cmake-build-release-mingw-qt --target SDRManager
 ```
 
-Use **Release** for FM listening — Debug uses 31-tap FIR1 and can't sustain ≥15 MS/s.
+Use **Release** for FM listening — Debug defaults to 31-tap FIR1 and can't sustain ≥15 MS/s. FIR1/FIR2/Channel tap counts are adjustable per demodulator via the ⚙ button (saved with the panel state; changing them rebuilds the modem).
 
 ## Dependencies
 

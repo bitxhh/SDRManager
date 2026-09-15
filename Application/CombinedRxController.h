@@ -83,7 +83,6 @@ public:
     void removeExtraHandler(IPipelineHandler* h);
 
     [[nodiscard]] ModemHandler* demodHandler() const { return demodHandler_; }
-    [[nodiscard]] double ifRms() const;
 
     // Межканальная фазовая калибровка. calibratePhase() снимает текущую сырую
     // фазу как zero-reference (каналы должны принимать один и тот же сигнал).

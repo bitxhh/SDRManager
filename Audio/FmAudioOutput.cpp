@@ -22,8 +22,17 @@ FmAudioOutput::FmAudioOutput(QObject* parent)
                   + std::to_string(static_cast<int>(state))
                   + " error=" + std::to_string(static_cast<int>(err))
                   + " bytesFree=" + std::to_string(sink_->bytesFree())
+                  + " fillMsAvg=" + std::to_string(static_cast<int>(fillMsAvg_))
                   + " outRate=" + std::to_string(outRate_)
                   + " isFloat=" + std::to_string(outIsFloat_));
+        if (droppedBytes_ > 0 || truncatedBytes_ > 0) {
+            const qint64 bytesPerMs = std::max<qint64>(1, outRate_ * frameBytes() / 1000);
+            LOG_WARN("FmAudioOutput: latency control dropped "
+                     + std::to_string(droppedBytes_ / bytesPerMs) + " ms, truncated "
+                     + std::to_string(truncatedBytes_ / bytesPerMs) + " ms in last 2 s");
+            droppedBytes_   = 0;
+            truncatedBytes_ = 0;
+        }
         // Auto-recover from underrun
         if (state == QAudio::StoppedState && err == QAudio::UnderrunError) {
             LOG_WARN("FmAudioOutput: underrun, restarting");
@@ -62,6 +71,10 @@ void FmAudioOutput::teardown() {
     outIsFloat_    = true;
     diagCount_     = 0;
     agcGain_       = 1.0f;
+    draining_       = false;
+    fillMsAvg_      = -1.0;
+    droppedBytes_   = 0;
+    truncatedBytes_ = 0;
     resampler_.reset();
     statusText_.clear();
     emit statusChanged(QString(), false);
@@ -83,9 +96,16 @@ void FmAudioOutput::push(QVector<float> samples, double sampleRateHz) {
 
     if (!device_) return;
 
+    // Smoothed sink fill level → small resample-ratio trim toward kTargetMs.
+    const double bytesPerMs = outRate_ * frameBytes() / 1000.0;
+    const double fillMs = (sink_->bufferSize() - sink_->bytesFree()) / bytesPerMs;
+    fillMsAvg_ = (fillMsAvg_ < 0.0) ? fillMs
+                                    : fillMsAvg_ + kFillAvgAlpha * (fillMs - fillMsAvg_);
+    const double fillErr = std::clamp((fillMsAvg_ - kTargetMs) / kTargetMs, -1.0, 1.0);
+    const double outRateTrimmed = outRate_ * (1.0 - kMaxRateTrim * fillErr);
+
     // Resample demodulator SR → device output rate
-    const QVector<float> rs = resampler_.process(
-        samples, sampleRateHz, static_cast<double>(outRate_));
+    const QVector<float> rs = resampler_.process(samples, sampleRateHz, outRateTrimmed);
     if (rs.isEmpty()) return;
 
     // ── AGC: compute block RMS, update gain ───────────────────────────────────
@@ -120,12 +140,8 @@ void FmAudioOutput::push(QVector<float> samples, double sampleRateHz) {
             pcm[2 * i]     = s;
             pcm[2 * i + 1] = s;
         }
-        const char*  data  = reinterpret_cast<const char*>(pcm.constData());
-        const qint64 bytes = static_cast<qint64>(pcm.size()) * sizeof(float);
-        const qint64 written = device_->write(data, bytes);
-        if (written < bytes)
-            LOG_DEBUG("FmAudioOutput: partial write Float32 "
-                      + std::to_string(written) + "/" + std::to_string(bytes));
+        writePcm(reinterpret_cast<const char*>(pcm.constData()),
+                 static_cast<qint64>(pcm.size()) * sizeof(float));
     } else {
         QVector<int16_t> pcm(rs.size() * 2);
         for (int i = 0; i < rs.size(); ++i) {
@@ -134,13 +150,34 @@ void FmAudioOutput::push(QVector<float> samples, double sampleRateHz) {
             pcm[2 * i]     = v;
             pcm[2 * i + 1] = v;
         }
-        const char*  data  = reinterpret_cast<const char*>(pcm.constData());
-        const qint64 bytes = static_cast<qint64>(pcm.size()) * sizeof(int16_t);
-        const qint64 written = device_->write(data, bytes);
-        if (written < bytes)
-            LOG_DEBUG("FmAudioOutput: partial write Int16 "
-                      + std::to_string(written) + "/" + std::to_string(bytes));
+        writePcm(reinterpret_cast<const char*>(pcm.constData()),
+                 static_cast<qint64>(pcm.size()) * sizeof(int16_t));
     }
+}
+
+// ---------------------------------------------------------------------------
+// writePcm — latency-bounded write (see header, "Latency control")
+// ---------------------------------------------------------------------------
+void FmAudioOutput::writePcm(const char* data, qint64 bytes) {
+    const qint64 fb         = frameBytes();
+    const qint64 bytesPerMs = outRate_ * fb / 1000;
+    const qint64 bytesFree  = sink_->bytesFree();
+    const qint64 fill       = sink_->bufferSize() - bytesFree;
+
+    if (fill > kHighWaterMs * bytesPerMs)
+        draining_ = true;
+    if (draining_) {
+        if (fill > kTargetMs * bytesPerMs) {
+            droppedBytes_ += bytes;
+            return;
+        }
+        draining_ = false;
+    }
+
+    const qint64 toWrite = std::min(bytes, bytesFree / fb * fb);
+    const qint64 written = toWrite > 0 ? device_->write(data, toWrite) : 0;
+    if (written < bytes)
+        truncatedBytes_ += bytes - std::max<qint64>(written, 0);
 }
 
 // ---------------------------------------------------------------------------

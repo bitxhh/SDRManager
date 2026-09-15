@@ -71,7 +71,6 @@ public:
 
     // ── Metrics ──────────────────────────────────────────────────────────────
     [[nodiscard]] ModemHandler* demodHandler() const { return demodHandler_; }
-    [[nodiscard]] double ifRms() const;
 
 signals:
     void fftReady(FftFrame frame);

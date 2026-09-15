@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMap>
 #include <QObject>
 #include <QString>
 #include <memory>
@@ -31,13 +32,18 @@ public slots:
     // calBwHz — полоса для LMS_Calibrate. -1.0 = вычислить из текущего Fs.
     void calibrate(const QList<ChannelDescriptor>& channels = {}, double calBwHz = -1.0);
 
-    // Auto-open sequence (background thread): init → setSampleRate → calibrate.
+    // Auto-open sequence (background thread): init → setSampleRate → gain → calibrate.
+    // rxGainsDb: RX channelIndex → gain to apply before calibration (e.g. restored
+    // from DeviceSettings). Channels without an entry keep the driver default.
     // Emits deviceInitialized, sampleRateChanged, statusChanged/errorOccurred.
-    void autoOpen(const QList<ChannelDescriptor>& channels, double sampleRateHz);
+    void autoOpen(const QList<ChannelDescriptor>& channels, double sampleRateHz,
+                  const QMap<int, double>& rxGainsDb = {});
 
     // Lightweight channel switch (background thread): no LMS_Close/LMS_Init.
-    // Calibrates only newly enabled channels. Emits deviceInitialized when done.
-    void reconfigureChannels(const QList<ChannelDescriptor>& channels);
+    // Calibrates only newly enabled channels, then applies rxGainsDb where the
+    // device gain differs. Emits deviceInitialized when done.
+    void reconfigureChannels(const QList<ChannelDescriptor>& channels,
+                             const QMap<int, double>& rxGainsDb = {});
 
     void setSampleRate(double sampleRateHz);
 
