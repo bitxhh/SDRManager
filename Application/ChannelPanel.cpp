@@ -1,4 +1,5 @@
 #include "ChannelPanel.h"
+#include "FrequencyDial.h"
 #include "ClassifierController.h"
 #include "../Hardware/DeviceController.h"
 #include "../Core/IDevice.h"
@@ -127,51 +128,29 @@ void ChannelPanel::buildUi() {
         auto* hlay = new QHBoxLayout(row);
         hlay->setContentsMargins(0, 0, 0, 0);
 
-        auto* label = new QLabel("Freq (MHz):", row);
+        auto* label = new QLabel("Freq:", row);
         label->setFixedWidth(72);
 
-        freqSpinBox_ = new QDoubleSpinBox(row);
-        freqSpinBox_->setRange(cfg_.freqMinMHz, cfg_.freqMaxMHz);
-        freqSpinBox_->setDecimals(3);
-        freqSpinBox_->setSingleStep(0.1);
-        freqSpinBox_->setValue(cfg_.freqDefaultMHz);
-        freqSpinBox_->setFixedWidth(110);
-
-        freqSlider_ = new QSlider(Qt::Horizontal, row);
-        freqSlider_->setRange(static_cast<int>(cfg_.freqMinMHz),
-                              static_cast<int>(cfg_.freqMaxMHz));
-        freqSlider_->setValue(static_cast<int>(cfg_.freqDefaultMHz));
-
-        auto* applyBtn = new QPushButton("Apply", row);
-        applyBtn->setFixedWidth(60);
+        freqDial_ = new FrequencyDial(row);
+        freqDial_->setRangeMHz(cfg_.freqMinMHz, cfg_.freqMaxMHz);
+        freqDial_->setValueMHz(cfg_.freqDefaultMHz);
 
         hlay->addWidget(label);
-        hlay->addWidget(freqSpinBox_);
-        hlay->addWidget(freqSlider_, 1);
-        hlay->addWidget(applyBtn);
+        hlay->addWidget(freqDial_);
+        hlay->addStretch(1);
         layout->addWidget(row);
 
-        // Slider ↔ spinbox sync
-        connect(freqSlider_, &QSlider::valueChanged, this, [this](int v) {
-            QSignalBlocker b(freqSpinBox_);
-            freqSpinBox_->setValue(static_cast<double>(v));
-        });
-        connect(freqSpinBox_, &QDoubleSpinBox::valueChanged, this, [this](double v) {
-            {
-                QSignalBlocker b(freqSlider_);
-                freqSlider_->setValue(static_cast<int>(v));
-            }
+        connect(freqDial_, &FrequencyDial::valueChanged, this, [this](qint64 hz) {
             if (demodVfoSpin_) {
+                const double v    = static_cast<double>(hz) / 1e6;
                 const double sr   = device_->sampleRate();
                 const double half = (sr > 0 ? sr / 2.0 : 2e6) / 1e6;
-                demodVfoSpin_->setRange(v - half, v + half);
+                demodVfoSpin_->setRangeMHz(v - half, v + half);
             }
             updateFilterBand(modeCombo_ && modeCombo_->currentIndex() != 0);
         });
 
-        connect(applyBtn,     &QPushButton::clicked,            this, &ChannelPanel::applyFrequency);
-        connect(freqSlider_,  &QSlider::sliderReleased,         this, &ChannelPanel::applyFrequency);
-        connect(freqSpinBox_, &QDoubleSpinBox::editingFinished, this, &ChannelPanel::applyFrequency);
+        connect(freqDial_, &FrequencyDial::valueCommitted,  this, &ChannelPanel::applyFrequency);
     }
 
     // ── Gain row ──────────────────────────────────────────────────────────────
@@ -308,14 +287,11 @@ void ChannelPanel::buildUi() {
         vfoLabel->setToolTip("Tune demodulator to a station within the capture band.\n"
                              "Click anywhere on the spectrum to jump here.");
 
-        demodVfoSpin_ = new QDoubleSpinBox(row);
-        demodVfoSpin_->setRange(cfg_.freqMinMHz, cfg_.freqMaxMHz);
-        demodVfoSpin_->setDecimals(3);
-        demodVfoSpin_->setSingleStep(0.1);
-        demodVfoSpin_->setValue(cfg_.freqDefaultMHz);
-        demodVfoSpin_->setFixedWidth(110);
+        demodVfoSpin_ = new FrequencyDial(row);
+        demodVfoSpin_->setRangeMHz(cfg_.freqMinMHz, cfg_.freqMaxMHz);
+        demodVfoSpin_->setValueMHz(cfg_.freqDefaultMHz);
         demodVfoSpin_->setEnabled(false);
-        demodVfoSpin_->setToolTip("Station frequency (MHz). Edit or click the spectrum.");
+        demodVfoSpin_->setToolTip("Station frequency. Edit or click the spectrum.");
 
         auto* hint = new QLabel("\u2190 click spectrum to tune", row);
         hint->setStyleSheet("color: gray; font-size: 10px;");
@@ -326,10 +302,10 @@ void ChannelPanel::buildUi() {
         hlay->addStretch();
         layout->addWidget(row);
 
-        connect(demodVfoSpin_, &QDoubleSpinBox::valueChanged, this, [this](double vfoMHz) {
+        connect(demodVfoSpin_, &FrequencyDial::valueChanged, this, [this](qint64 vfoHz) {
             updateFilterBand(modeCombo_ && modeCombo_->currentIndex() != 0);
             if (ctrl_) {
-                const double offsetHz = (vfoMHz - freqSpinBox_->value()) * 1e6;
+                const double offsetHz = static_cast<double>(vfoHz - freqDial_->value());
                 ctrl_->setDemodOffset(offsetHz);
             }
         });
@@ -494,10 +470,10 @@ void ChannelPanel::setupFftPlot() {
         if (!modeCombo_ || modeCombo_->currentIndex() == 0) return;
         if (!demodVfoSpin_) return;
         const double clickedMHz = fftPlot_->xAxis->pixelToCoord(event->pos().x());
-        const double lo   = freqSpinBox_->value();
+        const double lo   = freqDial_->valueMHz();
         const double sr   = device_->sampleRate();
         const double half = (sr > 0 ? sr / 2.0 : 2e6) / 1e6;
-        demodVfoSpin_->setValue(std::clamp(clickedMHz, lo - half, lo + half));
+        demodVfoSpin_->setValueMHz(std::clamp(clickedMHz, lo - half, lo + half));
     });
 }
 
@@ -506,7 +482,7 @@ void ChannelPanel::updateFilterBand(bool visible) {
     if (!vfoBand_) return;
     vfoBand_->setVisible(visible);
     if (visible) {
-        const double vfoMHz = demodVfoSpin_ ? demodVfoSpin_->value() : freqSpinBox_->value();
+        const double vfoMHz = demodVfoSpin_ ? demodVfoSpin_->valueMHz() : freqDial_->valueMHz();
         double bwMHz = 100.0 / 1000.0;
         const int mode = modeCombo_ ? modeCombo_->currentIndex() : 0;
         if      (mode == 1 && fmBwSpin_)  bwMHz = fmBwSpin_->value() / 1000.0;
@@ -540,7 +516,7 @@ void ChannelPanel::onModeChanged(int index) {
     if (!active || !ctrl_->isStreaming()) return;
 
     const double offsetHz = demodVfoSpin_
-                            ? (demodVfoSpin_->value() - freqSpinBox_->value()) * 1e6
+                            ? (demodVfoSpin_->valueMHz() - freqDial_->valueMHz()) * 1e6
                             : 0.0;
     const QString mode = isFm ? "FM" : (isAm ? "AM" : "");
     if (mode.isEmpty()) return;
@@ -564,7 +540,7 @@ void ChannelPanel::onFftReady(FftFrame frame) {
     fftPlot_->graph(0)->setData(frame.freqMHz, frame.powerDb);
 
     if (centerLine_) {
-        const double mhz = freqSpinBox_ ? freqSpinBox_->value() : cfg_.freqDefaultMHz;
+        const double mhz = freqDial_ ? freqDial_->valueMHz() : cfg_.freqDefaultMHz;
         centerLine_->start->setCoords(mhz, -130.0);
         centerLine_->end->setCoords  (mhz,   10.0);
     }
@@ -587,7 +563,7 @@ void ChannelPanel::replotIfDirty() {
 // ---------------------------------------------------------------------------
 void ChannelPanel::applyFrequency() {
     if (!controller_->isInitialized()) return;
-    const double mhz = freqSpinBox_->value();
+    const double mhz = freqDial_->valueMHz();
     controller_->setFrequencyChannel(cfg_.channel, mhz);
     if (ctrl_) ctrl_->setFftCenterFreq(mhz);
     if (centerLine_) {
@@ -605,7 +581,7 @@ void ChannelPanel::applyDemodParams() {
     if (mode == 0) return;
 
     const double offsetHz = demodVfoSpin_
-                            ? (demodVfoSpin_->value() - freqSpinBox_->value()) * 1e6
+                            ? (demodVfoSpin_->valueMHz() - freqDial_->valueMHz()) * 1e6
                             : 0.0;
     const QString modeStr = (mode == 1) ? "FM" : "AM";
     ctrl_->setDemodMode(modeStr, offsetHz);
@@ -627,7 +603,7 @@ void ChannelPanel::applyDemodParams() {
 // ---------------------------------------------------------------------------
 RxController::StreamConfig ChannelPanel::buildStreamConfig() const {
     RxController::StreamConfig cfg;
-    cfg.loFreqMHz = freqSpinBox_ ? freqSpinBox_->value() : cfg_.freqDefaultMHz;
+    cfg.loFreqMHz = freqDial_ ? freqDial_->valueMHz() : cfg_.freqDefaultMHz;
     cfg.recordRaw = recordCheckBox_ && recordCheckBox_->isChecked();
     cfg.rawPath   = rawPath_;
     cfg.exportWav = wavCheckBox_   && wavCheckBox_->isChecked();
@@ -640,7 +616,7 @@ RxController::StreamConfig ChannelPanel::buildStreamConfig() const {
         if      (mode == 1) cfg.demodMode = "FM";
         else if (mode == 2) cfg.demodMode = "AM";
         if (mode > 0 && demodVfoSpin_)
-            cfg.demodOffsetHz = (demodVfoSpin_->value() - cfg.loFreqMHz) * 1e6;
+            cfg.demodOffsetHz = (demodVfoSpin_->valueMHz() - cfg.loFreqMHz) * 1e6;
     }
     return cfg;
 }

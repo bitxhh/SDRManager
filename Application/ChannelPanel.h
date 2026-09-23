@@ -18,12 +18,13 @@ class QPushButton;
 class IDevice;
 class DeviceController;
 class ClassifierController;
+class FrequencyDial;
 
 // ---------------------------------------------------------------------------
 // ChannelPanel — self-contained per-channel QWidget.
 //
-// Owns: FFT plot, frequency spin/slider, gain slider, demod controls (FM/AM),
-// VFO spin, recording checkboxes, classifier toggle.
+// Owns: FFT plot, frequency dial, gain slider, demod controls (FM/AM),
+// VFO dial, recording checkboxes, classifier toggle.
 //
 // Call setRxController() to wire it to an RxController (and recreate
 // the embedded ClassifierController). Must be called before startStream.
@@ -107,8 +108,7 @@ private:
     bool         fftDirty_{false};
 
     // ── Frequency ─────────────────────────────────────────────────────────────
-    QDoubleSpinBox* freqSpinBox_{nullptr};
-    QSlider*        freqSlider_{nullptr};
+    FrequencyDial*  freqDial_{nullptr};
 
     // ── Gain ──────────────────────────────────────────────────────────────────
     QSlider* gainSlider_{nullptr};
@@ -117,7 +117,7 @@ private:
     // ── Demodulator ───────────────────────────────────────────────────────────
     QComboBox*      modeCombo_{nullptr};
     QLabel*         volLabel_{nullptr};
-    QDoubleSpinBox* demodVfoSpin_{nullptr};
+    FrequencyDial*  demodVfoSpin_{nullptr};
     QSlider*        demodVolSlider_{nullptr};
     QLabel*         demodVolLabel_{nullptr};
     QLabel*         demodStatusLabel_{nullptr};

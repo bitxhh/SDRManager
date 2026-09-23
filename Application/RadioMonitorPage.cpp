@@ -2,6 +2,7 @@
 
 #include "CombinedRxController.h"
 #include "DemodulatorPanel.h"
+#include "FrequencyDial.h"
 #include "RecordingSettingsDialog.h"
 #include "WaterfallView.h"
 #include "../Core/FileNaming.h"
@@ -96,41 +97,19 @@ void RadioMonitorPage::buildUi() {
         auto* hlay = new QHBoxLayout(row);
         hlay->setContentsMargins(0, 0, 0, 0);
 
-        auto* lbl = new QLabel("Center freq (MHz):", row);
+        auto* lbl = new QLabel("Center freq:", row);
         lbl->setFixedWidth(120);
 
-        freqSpin_ = new QDoubleSpinBox(row);
-        freqSpin_->setRange(kFreqMinMHz, kFreqMaxMHz);
-        freqSpin_->setDecimals(3);
-        freqSpin_->setSingleStep(0.1);
-        freqSpin_->setValue(kFreqDefaultMHz);
-        freqSpin_->setFixedWidth(110);
-
-        freqSlider_ = new QSlider(Qt::Horizontal, row);
-        freqSlider_->setRange(static_cast<int>(kFreqMinMHz),
-                              static_cast<int>(kFreqMaxMHz));
-        freqSlider_->setValue(static_cast<int>(kFreqDefaultMHz));
-
-        applyBtn_ = new QPushButton("Apply", row);
-        applyBtn_->setFixedWidth(60);
+        freqDial_ = new FrequencyDial(row);
+        freqDial_->setRangeMHz(kFreqMinMHz, kFreqMaxMHz);
+        freqDial_->setValueMHz(kFreqDefaultMHz);
 
         hlay->addWidget(lbl);
-        hlay->addWidget(freqSpin_);
-        hlay->addWidget(freqSlider_, 1);
-        hlay->addWidget(applyBtn_);
+        hlay->addWidget(freqDial_);
+        hlay->addStretch(1);
         outer->addWidget(row);
 
-        connect(freqSlider_, &QSlider::valueChanged, this, [this](int v) {
-            QSignalBlocker b(freqSpin_);
-            freqSpin_->setValue(static_cast<double>(v));
-        });
-        connect(freqSpin_, &QDoubleSpinBox::valueChanged, this, [this](double v) {
-            QSignalBlocker b(freqSlider_);
-            freqSlider_->setValue(static_cast<int>(v));
-        });
-        connect(applyBtn_,   &QPushButton::clicked,            this, &RadioMonitorPage::applyFrequency);
-        connect(freqSlider_, &QSlider::sliderReleased,         this, &RadioMonitorPage::applyFrequency);
-        connect(freqSpin_,   &QDoubleSpinBox::editingFinished, this, &RadioMonitorPage::applyFrequency);
+        connect(freqDial_, &FrequencyDial::valueCommitted, this, &RadioMonitorPage::applyFrequency);
     }
 
     // ── FFT plot ─────────────────────────────────────────────────────────────
@@ -509,13 +488,13 @@ bool RadioMonitorPage::isStreaming() const {
 }
 
 double RadioMonitorPage::centerFreqMHz() const {
-    return freqSpin_ ? freqSpin_->value() : kFreqDefaultMHz;
+    return freqDial_ ? freqDial_->valueMHz() : kFreqDefaultMHz;
 }
 
 // ---------------------------------------------------------------------------
 void RadioMonitorPage::applyFrequency() {
     if (!controller_->isInitialized()) return;
-    const double mhz = freqSpin_->value();
+    const double mhz = freqDial_->valueMHz();
 
     // Push to all active RX channels (LimeSDR shares one PLL but we still
     // broadcast in case the device supports independent LO per channel).

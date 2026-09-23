@@ -63,6 +63,8 @@ add_executable(SDRManager
         Application/ClassifierController.h
         Application/ChannelPanel.cpp
         Application/ChannelPanel.h
+        Application/FrequencyDial.cpp
+        Application/FrequencyDial.h
         Application/DemodulatorPanel.cpp
         Application/DemodulatorPanel.h
         Application/RadioMonitorPage.cpp

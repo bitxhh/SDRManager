@@ -25,6 +25,7 @@ class IDevice;
 class DeviceController;
 class CombinedRxController;
 class DemodulatorPanel;
+class FrequencyDial;
 class WaterfallHandler;
 class WaterfallView;
 
@@ -32,7 +33,7 @@ class WaterfallView;
 // RadioMonitorPage — единая вкладка радиомониторинга.
 //
 // Layout:
-//   [ Freq spinbox+slider / Apply ]
+//   [ Freq dial ]
 //   [ FFT plot (single spectrum, combined I/Q) ]
 //   [ + Add demodulator ] [ Record ] [ Settings ]
 //   [ DemodulatorPanel 1 … DemodulatorPanel N ]  (макс 4)
@@ -140,9 +141,7 @@ private:
     QVector<double>          gainsDb_;
 
     // ── Frequency controls ───────────────────────────────────────────────────
-    QDoubleSpinBox* freqSpin_{nullptr};
-    QSlider*        freqSlider_{nullptr};
-    QPushButton*    applyBtn_{nullptr};
+    FrequencyDial*  freqDial_{nullptr};
 
     // ── FFT plot ─────────────────────────────────────────────────────────────
     QCustomPlot*    fftPlot_{nullptr};

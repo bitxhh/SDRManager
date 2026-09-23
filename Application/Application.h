@@ -37,6 +37,7 @@
 #include "SessionManager.h"
 
 class TxController;
+class FrequencyDial;
 class RadioMonitorPage;
 
 class DeviceDetailWindow : public QMainWindow {
@@ -123,7 +124,7 @@ private:
 
     // ── TX page ───────────────────────────────────────────────────────────────
     QWidget*        txPage_{nullptr};
-    QDoubleSpinBox* txFreqSpin_{nullptr};
+    FrequencyDial*  txFreqSpin_{nullptr};
     QSlider*        txGainSlider_{nullptr};
     QLabel*         txGainLabel_{nullptr};
     QDoubleSpinBox* txToneOffsetSpin_{nullptr};

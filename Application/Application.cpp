@@ -8,6 +8,7 @@
 #include <QSize>
 #include "../Core/ChannelDescriptor.h"
 #include "../Core/DeviceSettings.h"
+#include "FrequencyDial.h"
 #include "LoggerOptionsDialog.h"
 #include "RadioMonitorPage.h"
 #include "TxController.h"
@@ -185,7 +186,7 @@ DeviceDetailWindow::DeviceDetailWindow(std::shared_ptr<IDevice> device, IDeviceM
         if (i < gainValueLabels_.size())
             gainValueLabels_[i]->setText(QString("%1 dB").arg(v));
     }
-    if (txFreqSpin_)       txFreqSpin_->setValue(settings.txFreqMHz);
+    if (txFreqSpin_)       txFreqSpin_->setValueMHz(settings.txFreqMHz);
     if (txGainSlider_) {
         const int v = std::clamp(static_cast<int>(settings.txGainDb),
                                  txGainSlider_->minimum(),
@@ -288,7 +289,7 @@ void DeviceDetailWindow::closeEvent(QCloseEvent* event) {
                            ? radioMonitorPage_->centerFreqMHz()
                            : device->frequency() / 1e6;
         for (int i = 0; i < 2; ++i) s.freqRxMHz[i] = mhz;
-        if (txFreqSpin_)       s.txFreqMHz      = txFreqSpin_->value();
+        if (txFreqSpin_)       s.txFreqMHz      = txFreqSpin_->valueMHz();
         if (txGainSlider_)     s.txGainDb       = txGainSlider_->value();
         if (txToneOffsetSpin_) s.txToneOffsetHz = txToneOffsetSpin_->value() * 1000.0;
         if (txAmplitudeSpin_)  s.txAmplitude    = txAmplitudeSpin_->value();
@@ -667,14 +668,11 @@ QWidget* DeviceDetailWindow::createTxPage() {
     auto* freqHlay = new QHBoxLayout(freqRow);
     freqHlay->setContentsMargins(0, 0, 0, 0);
 
-    auto* freqLabel = new QLabel("TX freq (MHz):", freqRow);
+    auto* freqLabel = new QLabel("TX freq:", freqRow);
     freqLabel->setFixedWidth(100);
-    txFreqSpin_ = new QDoubleSpinBox(freqRow);
-    txFreqSpin_->setRange(kFreqMinMHz, kFreqMaxMHz);
-    txFreqSpin_->setDecimals(3);
-    txFreqSpin_->setSingleStep(0.1);
-    txFreqSpin_->setValue(kFreqDefaultMHz);
-    txFreqSpin_->setFixedWidth(110);
+    txFreqSpin_ = new FrequencyDial(freqRow);
+    txFreqSpin_->setRangeMHz(kFreqMinMHz, kFreqMaxMHz);
+    txFreqSpin_->setValueMHz(kFreqDefaultMHz);
 
     freqHlay->addWidget(freqLabel);
     freqHlay->addWidget(txFreqSpin_);
@@ -749,7 +747,7 @@ QWidget* DeviceDetailWindow::createTxPage() {
 
     connect(txStartButton_, &QPushButton::clicked, this, [this]() {
         TxController::TxConfig cfg;
-        cfg.freqMHz      = txFreqSpin_->value();
+        cfg.freqMHz      = txFreqSpin_->valueMHz();
         cfg.gainDb       = txGainSlider_->value();
         cfg.toneOffsetHz = txToneOffsetSpin_->value() * 1000.0;
         cfg.amplitude    = static_cast<float>(txAmplitudeSpin_->value());
