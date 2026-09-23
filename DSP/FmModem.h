@@ -15,7 +15,7 @@ public:
     explicit FmModem(double inputSampleRateHz,
                      double stationOffsetHz,
                      double deemphTauSec    = 50e-6,
-                     double bandwidthHz     = 150'000.0,
+                     double bandwidthHz     = 100'000.0,
                      int    fir1Taps        = kDefaultFir1Taps,
                      int    fir2Taps        = kDefaultFir2Taps);
 

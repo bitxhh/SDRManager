@@ -8,7 +8,7 @@
 
 ModemRegistry::ModemRegistry() {
     add(QStringLiteral("FM"), [](double off, QObject* p) -> ModemHandler* {
-        return new FmModemHandler(off, 75e-6, 150'000.0, p);
+        return new FmModemHandler(off, 75e-6, 100'000.0, p);
     });
     add(QStringLiteral("NFM"), [](double off, QObject* p) -> ModemHandler* {
         return new NfmModemHandler(off, 12'500.0, 5'000.0, p);

@@ -603,6 +603,14 @@ void RadioMonitorPage::shutdown() {
     ctrl_->shutdown();
 }
 
+void RadioMonitorPage::stopStreamSync() {
+    if (!isStreaming()) return;
+    shutdown();
+    // teardownStream() disconnects the workers' finished() signal, so
+    // streamFinished never arrives — without this Start stays disabled.
+    onStreamFinishedInternal();
+}
+
 // ---------------------------------------------------------------------------
 void RadioMonitorPage::onStreamErrorInternal(const QString& err) {
     if (statusLabel_) {

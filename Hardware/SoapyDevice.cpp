@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <stdexcept>
 
 namespace {
@@ -31,6 +32,19 @@ SoapyDevice::~SoapyDevice() {
     } catch (...) {
         // деструктор не должен бросать
     }
+}
+
+double SoapyDevice::maxSampleRate() const {
+    const bool rtl = makeArgs_.contains(QStringLiteral("driver=rtlsdr"))
+                  || id_.startsWith(QStringLiteral("soapy:rtlsdr"));
+    return rtl ? 2.4e6 : std::numeric_limits<double>::infinity();
+}
+
+// hz > предела → наибольший разрешённый rate из списка (или сам предел).
+double SoapyDevice::clampRate(double hz, const QList<double>& allowed) const {
+    const double maxHz = maxSampleRate();
+    if (hz <= maxHz) return hz;
+    return allowed.isEmpty() ? maxHz : allowed.last();
 }
 
 QString SoapyDevice::soapyError() const {
@@ -69,11 +83,14 @@ void SoapyDevice::init(const QList<ChannelDescriptor>& /*channels*/) {
     size_t  n     = 0;
     double* rates = a.listSampleRates(dev_, soapy::kRx, 0, &n);
     if (rates) {
-        for (size_t i = 0; i < n; ++i) rates_.append(rates[i]);
+        const double maxHz = maxSampleRate();
+        for (size_t i = 0; i < n; ++i)
+            if (rates[i] <= maxHz) rates_.append(rates[i]);
         std::sort(rates_.begin(), rates_.end());
         if (a.sdrFree) a.sdrFree(rates);   // без SoapySDR_free — утечка в пару сотен байт
     }
 
+    sampleRateHz_ = clampRate(sampleRateHz_, rates_.isEmpty() ? fallbackRates() : rates_);
     if (a.setSampleRate(dev_, soapy::kRx, 0, sampleRateHz_) != 0)
         throw std::runtime_error("SoapyDevice: setSampleRate failed: "
                                  + soapyError().toStdString());
@@ -111,6 +128,7 @@ void SoapyDevice::setSampleRate(double hz) {
     const auto& a = soapy::api();
     std::lock_guard lock(apiMutex_);
 
+    hz = clampRate(hz, rates_.isEmpty() ? fallbackRates() : rates_);
     if (dev_ && a.setSampleRate(dev_, soapy::kRx, 0, hz) != 0)
         throw std::runtime_error("SoapyDevice: setSampleRate failed: "
                                  + soapyError().toStdString());
@@ -122,7 +140,15 @@ double SoapyDevice::sampleRate() const { return sampleRateHz_; }
 
 QList<double> SoapyDevice::supportedSampleRates() const {
     std::lock_guard lock(apiMutex_);
-    return rates_.isEmpty() ? kFallbackRates : rates_;
+    return rates_.isEmpty() ? fallbackRates() : rates_;
+}
+
+QList<double> SoapyDevice::fallbackRates() const {
+    const double maxHz = maxSampleRate();
+    QList<double> out;
+    for (double r : kFallbackRates)
+        if (r <= maxHz) out.append(r);
+    return out;
 }
 
 void SoapyDevice::setFrequency(double hz) {
@@ -177,7 +203,15 @@ void SoapyDevice::startStream() {
         return;   // уже запущен
 
     const size_t chans[1] = {0};
-    stream_ = a.setupStream(dev_, soapy::kRx, "CS16", chans, 1, nullptr);
+    // Дефолт SoapyRTLSDR — 15 буферов (~0.6 с при 3.2 MS/s); при кратких
+    // задержках планировщика Windows этого мало, и драйвер выкидывает блоки
+    // (щелчки в звуке). Лишние ключи другие драйверы игнорируют.
+    char kBuffersKey[] = "buffers";
+    char kBuffersVal[] = "64";
+    char* keys[1] = {kBuffersKey};
+    char* vals[1] = {kBuffersVal};
+    const SoapySDRKwargs streamArgs{1, keys, vals};
+    stream_ = a.setupStream(dev_, soapy::kRx, "CS16", chans, 1, &streamArgs);
     if (!stream_)
         throw std::runtime_error("SoapyDevice: setupStream failed: "
                                  + soapyError().toStdString());
@@ -190,6 +224,8 @@ void SoapyDevice::startStream() {
     }
 
     samplesDelivered_ = 0;
+    overflowCount_    = 0;
+    lastOverflowLog_  = {};
     setState(DeviceState::Streaming);
 }
 
@@ -247,7 +283,19 @@ int SoapyDevice::readBlock(int16_t* buffer, int count, int timeoutMs) {
                                static_cast<long>(timeoutMs) * 1000);
 
     // Таймаут и overflow не фатальны — воркер продолжает цикл.
-    if (n == soapy::kErrTimeout || n == soapy::kErrOverflow)
+    if (n == soapy::kErrOverflow) {
+        ++overflowCount_;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastOverflowLog_ > std::chrono::seconds(2)) {
+            lastOverflowLog_ = now;
+            LOG_WARN("SoapyDevice: RX overflow — samples dropped (total "
+                    + std::to_string(overflowCount_) + ") at "
+                    + std::to_string(static_cast<int>(sampleRateHz_.load()))
+                    + " S/s; USB or DSP cannot keep up");
+        }
+        return 0;
+    }
+    if (n == soapy::kErrTimeout)
         return 0;
     if (n < 0)
         return n;

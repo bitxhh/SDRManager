@@ -64,8 +64,14 @@ public:
     // so buttons can be enabled and the VFO ranges can be set from SR.
     void onDeviceReady();
 
-    // Synchronous stream teardown — blocks until workers exit.
+    // Synchronous stream teardown — blocks until workers exit. Does NOT reset
+    // the UI or emit streamStopped (used on window close).
     void shutdown();
+
+    // Synchronous stop for a live session (e.g. before a sample-rate change):
+    // same as shutdown(), plus the UI reset + streamStopped that the async
+    // path gets from CombinedRxController::streamFinished.
+    void stopStreamSync();
 
     [[nodiscard]] bool isStreaming() const;
     [[nodiscard]] double centerFreqMHz() const;

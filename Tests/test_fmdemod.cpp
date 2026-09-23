@@ -185,3 +185,96 @@ TEST_CASE("Full chain: audio SR is ~50 kHz for all supported input rates", "[fm]
     }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T8 — Качество WFM не должно падать при росте числа тапов FIR1
+// ─────────────────────────────────────────────────────────────────────────────
+// SINAD 1 кГц тона при девиации 75 кГц: остаток после вычитания подогнанной
+// синусоиды = шум + искажения. Резкий FIR1 (255 тапов) с cutoff ровно на
+// полосе срезал края спектра ЧМ → рост искажений относительно 31 тапа.
+static double sinadDb(const QVector<float>& x, double fs, double f) {
+    double re = 0.0, im = 0.0;
+    const int N = x.size();
+    for (int n = 0; n < N; ++n) {
+        re += x[n] * std::cos(2.0 * kPi * f * n / fs);
+        im -= x[n] * std::sin(2.0 * kPi * f * n / fs);
+    }
+    re *= 2.0 / N; im *= 2.0 / N;
+    double mean = 0.0;
+    for (float v : x) mean += v;
+    mean /= N;
+    double sig = 0.0, res = 0.0;
+    for (int n = 0; n < N; ++n) {
+        const double fit = re * std::cos(2.0 * kPi * f * n / fs)
+                         - im * std::sin(2.0 * kPi * f * n / fs);
+        sig += fit * fit;
+        const double e = x[n] - mean - fit;
+        res += e * e;
+    }
+    return 10.0 * std::log10(sig / (res + 1e-30));
+}
+
+TEST_CASE("FM: SINAD at 75 kHz deviation does not degrade with more FIR1 taps", "[fm][quality]") {
+    constexpr double kSR = 2'400'000.0;
+    for (double bw : {100'000.0, 150'000.0}) {
+        double sinad[2]{};
+        int i = 0;
+        for (int taps : {31, 255}) {
+            FmModem dem(kSR, 0.0, 50e-6, bw, taps, 255);
+            // 3 кГц тон — 5-я гармоника ещё в полосе FIR2 (15 кГц)
+            const auto iq    = makeFmSignal(kSR, 20 * 16384, 3'000.0, 75'000.0);
+            const auto audio = runDemod(dem, iq);
+            const int skip   = audio.size() / 4;
+            const QVector<float> steady(audio.constData() + skip,
+                                        audio.constData() + audio.size());
+            sinad[i++] = sinadDb(steady, dem.audioSampleRate(), 3'000.0);
+        }
+        INFO("BW=" << bw << " SINAD 31 taps=" << sinad[0] << " dB, 255 taps=" << sinad[1] << " dB");
+        CHECK(sinad[1] >= sinad[0] - 1.0);
+        CHECK(sinad[1] > 30.0);
+    }
+}
+
+TEST_CASE("FM: constructor clamps FIR1 cutoff like setBandwidth", "[fm]") {
+    // bw из UI (до 250 кГц) выше IF/2 = 240 кГц при 2.4 MS/s — конструктор
+    // должен строить FIR1 по клампленной полосе, как и setBandwidth.
+    constexpr double kSR = 2.4e6;
+    const auto iq = makeFmSignal(kSR, 8 * 16384, 3'000.0, 75'000.0);
+
+    FmModem a(kSR, 0.0, 50e-6, 250'000.0, 255, 255);
+    FmModem b(kSR, 0.0, 50e-6, 100'000.0, 255, 255);
+    b.setBandwidth(250'000.0);
+
+    const auto outA = runDemod(a, iq);
+    const auto outB = runDemod(b, iq);
+    REQUIRE(outA.size() == outB.size());
+    for (int i = 0; i < outA.size(); ++i)
+        REQUIRE(std::abs(outA[i] - outB[i]) < 1e-6f);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T9 — Слабая станция рядом с сильным соседом (+200 кГц, +20 дБ)
+// ─────────────────────────────────────────────────────────────────────────────
+// При полосе ±150 кГц сосед попадал в FIR1 и захватывал дискриминатор
+// (SINAD < 0 дБ — "сильно зашумлённая" станция). Дефолт ±100 кГц его режет.
+TEST_CASE("FM: default bandwidth rejects strong neighbour 200 kHz away", "[fm][quality]") {
+    constexpr double kSR = 2'400'000.0;
+    const int N = 16 * 16384;
+    auto       iq = makeFmSignal(kSR, N, 3'000.0, 75'000.0, 0.05);
+    const auto nb = makeFmSignal(kSR, N, 1'100.0, 75'000.0, 0.5);
+    for (int n = 0; n < N; ++n) {
+        const auto s = std::complex<double>{iq[2*n], iq[2*n+1]}
+                     + std::complex<double>{nb[2*n], nb[2*n+1]}
+                       * std::polar(1.0, 2.0 * kPi * 200'000.0 * n / kSR);
+        iq[2*n]   = static_cast<float>(s.real());
+        iq[2*n+1] = static_cast<float>(s.imag());
+    }
+
+    FmModem dem(kSR, 0.0, 50e-6, 100'000.0, 255, 255);   // дефолт FmModemHandler
+    const auto audio = runDemod(dem, iq);
+    const int skip   = audio.size() / 4;
+    const QVector<float> steady(audio.constData() + skip, audio.constData() + audio.size());
+    const double s = sinadDb(steady, dem.audioSampleRate(), 3'000.0);
+    INFO("SINAD=" << s << " dB");
+    CHECK(s > 30.0);
+}

@@ -4,6 +4,7 @@
 #include "SoapyApi.h"
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,11 @@ private:
     void setState(DeviceState s);
     void applyPendingFrequency();   // поток воркера
     [[nodiscard]] QString soapyError() const;
+    // Верхний предел rate для драйвера: RTL-SDR выше 2.4 MS/s теряет отсчёты
+    // (USB/RTL2832U) — такие rate'ы не предлагаем и не выставляем.
+    [[nodiscard]] double maxSampleRate() const;
+    [[nodiscard]] QList<double> fallbackRates() const;
+    [[nodiscard]] double clampRate(double hz, const QList<double>& allowed) const;
 
     QString makeArgs_;   // строка для SoapySDRDevice_makeStrArgs ("driver=rtlsdr,...")
     QString id_;
@@ -93,6 +99,10 @@ private:
     std::atomic<double> pendingFrequency_{-1.0};   // < 0 — нет отложенной
 
     std::atomic<uint64_t> samplesDelivered_{0};
+
+    // Диагностика потерь: overflow = драйвер выкинул сэмплы (USB/CPU не успели).
+    uint64_t overflowCount_{0};
+    std::chrono::steady_clock::time_point lastOverflowLog_{};
 
     DeviceState state_{DeviceState::Connected};
 };

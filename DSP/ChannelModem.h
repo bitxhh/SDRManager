@@ -27,11 +27,16 @@ inline constexpr int kMaxFirTaps = 1023;
 // ---------------------------------------------------------------------------
 // ChannelModem — common DSP pipeline for all demodulators.
 //
-//   float32 I/Q  →  DC blocker  →  NCO shift  →  FIR1 LPF (complex)
-//              →  decimate D1  →  IF @ ~500 kHz
-//              →  [virtual demodulateIF]
-//              →  FIR2 LPF (real)
-//              →  decimate D2 = 10  →  audio @ ~50 kHz
+//   float32 I/Q  →  DC blocker  →  NCO shift
+//              →  k × halfband ÷2 (complex, 47 taps, only non-zero taps computed)
+//              →  FIR1 LPF (complex) @ inputSR/2^k  →  decimate D1/2^k
+//              →  IF @ ~500 kHz (exactly 480 kHz when inputSR allows → 48 kHz audio)
+//              →  [virtual demodulateIF]  (every IF sample — stateful)
+//              →  FIR2 LPF (real, dot product only on output samples)
+//              →  decimate D2 = 10  →  audio @ ~48–53 kHz
+//
+// D1 = total IF decimation (halfbands × FIR1 decimation); FIR1 designs at the
+// reduced rate, so the same tap count gives a 2^k-times narrower transition.
 //
 // Subclasses implement demodulateIF() — the only stage that differs:
 //   FM: discriminator + de-emphasis
@@ -82,6 +87,7 @@ protected:
 
     // Subclass tools — redesign filters on the fly.
     void redesignFir1(double cutoffHz);
+    [[nodiscard]] double clampFir1Cutoff(double cutoffHz) const;
     void redesignFir2(double cutoffHz);
 
     // Accessible by subclass
@@ -101,6 +107,24 @@ private:
     dsp::DcBlocker    dc_;
     dsp::Nco          nco_;
 
+    // ── Halfband ÷2 cascade (complex) ────────────────────────────────────────
+    // Mirrored delay line; only the non-zero taps (every other one + centre)
+    // are stored, and the output is computed on every 2nd input only.
+    struct HalfbandStage {
+        std::vector<int>                  idx;     // tap positions with c ≠ 0
+        std::vector<double>               coef;
+        std::vector<std::complex<double>> delay;   // 2 × kHalfbandTaps
+        int  head{0};
+        bool odd{false};
+        // Returns true and writes y when a decimated output is ready.
+        bool push(std::complex<double> x, std::complex<double>& y);
+        void reset();
+    };
+    static constexpr int kHalfbandTaps = 47;   // 4m+3 → true halfband, ~−74 dB
+    std::vector<HalfbandStage> hb_;
+    double stageSR_;      // rate at FIR1 input = inputSR / 2^k
+    int    D1r_{1};       // FIR1's own decimation = D1 / 2^k
+
     // ── Stage-1 FIR (complex) ────────────────────────────────────────────────
     std::vector<double>               fir1Coeffs_;
     std::vector<std::complex<double>> fir1Delay_;
@@ -115,5 +139,6 @@ private:
 
     void                 fir1Push(std::complex<double> x);
     std::complex<double> fir1Compute() const;
-    double               fir2Step(double x);
+    void                 fir2Push(double x);
+    double               fir2Compute() const;
 };

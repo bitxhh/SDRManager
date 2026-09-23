@@ -262,29 +262,71 @@ bool FmAudioOutput::openSink(double sampleRateHz) {
 }
 
 // ---------------------------------------------------------------------------
-// LinearResampler::process
+// SincResampler
 // ---------------------------------------------------------------------------
-QVector<float> FmAudioOutput::LinearResampler::process(
+void FmAudioOutput::SincResampler::buildTable(double ratio) {
+    constexpr double kPi = 3.14159265358979323846;
+    const double fc = 0.5 * std::min(1.0, ratio) * 0.92;   // cycles/input sample
+
+    table.assign(static_cast<size_t>(kPhases + 1) * kTaps, 0.0f);
+    for (int p = 0; p <= kPhases; ++p) {
+        const double frac = static_cast<double>(p) / kPhases;
+        float* row = table.data() + static_cast<size_t>(p) * kTaps;
+        double sum = 0.0;
+        for (int j = 0; j < kTaps; ++j) {
+            const double d = (j - (kHalf - 1)) - frac;          // ∈ [-kHalf, kHalf]
+            const double x = 2.0 * fc * d;
+            const double sinc = (std::abs(x) < 1e-12) ? 1.0 : std::sin(kPi * x) / (kPi * x);
+            const double u = (d + kHalf) / (2.0 * kHalf);        // 0..1
+            const double w = 0.42 - 0.5 * std::cos(2.0 * kPi * u) + 0.08 * std::cos(4.0 * kPi * u);
+            const double v = sinc * w;
+            row[j] = static_cast<float>(v);
+            sum += v;
+        }
+        for (int j = 0; j < kTaps; ++j)                          // DC gain = 1
+            row[j] = static_cast<float>(row[j] / sum);
+    }
+    tableRatio = ratio;
+}
+
+QVector<float> FmAudioOutput::SincResampler::process(
     const QVector<float>& in, double inRate, double outRate)
 {
     if (in.isEmpty() || inRate <= 0 || outRate <= 0) return {};
 
+    const double ratio = outRate / inRate;
+    if (tableRatio <= 0.0 || std::abs(ratio / tableRatio - 1.0) > 0.01)
+        buildTable(ratio);
+    if (buf.empty()) buf.assign(kHalf - 1, 0.0f);
+
+    buf.insert(buf.end(), in.begin(), in.end());
+
     const double step = inRate / outRate;
     QVector<float> out;
-    out.reserve(static_cast<int>(in.size() * outRate / inRate) + 2);
+    out.reserve(static_cast<int>(in.size() * ratio) + 2);
 
-    while (true) {
-        const int i = static_cast<int>(phase);
-        if (i >= in.size()) {
-            phase -= in.size();
-            prev = in.back();
-            break;
+    const int n = static_cast<int>(buf.size());
+    while (static_cast<int>(pos) + kHalf < n) {
+        const int    i  = static_cast<int>(pos);
+        const double fp = (pos - i) * kPhases;
+        const int    p  = std::min(static_cast<int>(fp), kPhases - 1);
+        const float  a  = static_cast<float>(fp - p);
+        const float* r0 = table.data() + static_cast<size_t>(p) * kTaps;
+        const float* r1 = r0 + kTaps;
+        const float* x  = buf.data() + (i - (kHalf - 1));
+        float acc0 = 0.0f, acc1 = 0.0f;
+        for (int j = 0; j < kTaps; ++j) {
+            acc0 += r0[j] * x[j];
+            acc1 += r1[j] * x[j];
         }
-        const float s0   = (i == 0) ? prev : in[i - 1];
-        const float s1   = in[i];
-        const float frac = static_cast<float>(phase - static_cast<double>(i));
-        out.push_back(s0 + frac * (s1 - s0));
-        phase += step;
+        out.push_back(acc0 + a * (acc1 - acc0));
+        pos += step;
+    }
+
+    const int drop = static_cast<int>(pos) - (kHalf - 1);
+    if (drop > 0) {
+        buf.erase(buf.begin(), buf.begin() + std::min(drop, n));
+        pos -= drop;
     }
     return out;
 }

@@ -10,22 +10,23 @@ before the first `PrePipeline` dispatch — no handler ever touches raw int16.
 
 ```
 float I/Q → DC blocker (IIR HP) → NCO freq-shift
+          → halfband ÷2 cascade (47 taps, only when D1 has factors of 2)
           → FIR1 LPF (complex, 255 taps, Blackman)  ← push O(1) per sample
-          → decimate D1 → IF @ 500 kHz               ← compute O(N) only here
+          → decimate D1 → IF @ 480/500 kHz           ← compute O(N) only here
           → FM discriminator (atan2 conjugate product)
           → de-emphasis IIR (τ = 50 µs EU / 75 µs US)
-          → FIR2 LPF (real, 255 taps, fc ≈ 15 kHz)
-          → decimate D2=10 → audio @ 50 kHz
+          → FIR2 LPF (real, 255 taps, fc ≈ 15 kHz)  ← dot product only on outputs
+          → decimate D2=10 → audio @ 48/50 kHz
 ```
 
 ### FM parameters
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| IF target | 500 kHz | D1 = round(inputSR / 500000) |
-| Audio SR | 50 kHz | IF / D2 |
+| IF target | 480 kHz if inputSR is a multiple of 480k, else ~500 kHz | D1 = inputSR/480000 or round(inputSR / 500000); factors of 2 go to halfband stages while FIR1 keeps ≥ ÷2 |
+| Audio SR | 48 kHz (exact, no resampling) or ~50 kHz | IF / D2; FmAudioOutput resamples to the sink rate with a 16-tap windowed-sinc polyphase resampler |
 | FIR1 taps | 255 (Release) / 31 (Debug) default; per-demod ⚙ dialog, 15–1023 odd | -55 dB at Nyquist |
-| FIR1 bandwidth | 150 kHz default | Adjustable 50–225 kHz |
+| FIR1 bandwidth | ±100 kHz default (one-sided cutoff; the UI draws ±bw) | Adjustable 30 kHz – 0.9·IF/2. ±90–100 kHz ≈ Carson (75k dev + 15k audio). Wider bw with a strong neighbour ±200–300 kHz away lets it into the discriminator (capture → heavy noise); below ~80 kHz a sharp FIR1 cuts the FM spectrum (distortion). FIR1 cutoff is always clamped to 0.95·IF/2 (constructor and setBandwidth) to prevent adjacent-channel aliasing |
 | FIR2 taps | 255 | Rejects FM stereo subcarrier (23–53 kHz) |
 | FM max deviation | ±75 kHz | demodGain = ifSR / (2π × 75000) |
 | De-emphasis | 75 µs US default | fc ≈ 2122 Hz |

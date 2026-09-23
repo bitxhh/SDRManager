@@ -22,6 +22,7 @@ NfmModem::NfmModem(double inputSampleRateHz,
     , maxDeviation_(maxDeviationHz)
 {
     bandwidth_ = std::clamp(bandwidthHz, 6'000.0, ifSR_ * 0.9);
+    redesignFir1(bandwidth_ / 2.0);   // базе передан неклампленный bandwidthHz
 
     demodGain_ = ifSR_ / (2.0 * dsp::kPi * maxDeviation_);
 

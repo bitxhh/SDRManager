@@ -15,7 +15,7 @@ std::vector<modem::ParamDesc> FmModemHandler::paramDescriptors() const {
     return {
         modem::SpinParam{
             QStringLiteral("Bandwidth"),
-            50, 250, 150,
+            30, 250, 100,
             QStringLiteral(" kHz"), 10, 1000.0
         },
         modem::ComboParam{
@@ -34,7 +34,7 @@ FmModemHandler::createDemodulator(double sampleRateHz, double offsetHz,
         auto it = params.find(k);
         return it != params.end() ? it->second : def;
     };
-    const double bw  = get(QStringLiteral("Bandwidth"),   150'000.0);
+    const double bw  = get(QStringLiteral("Bandwidth"),   100'000.0);
     const double tau = get(QStringLiteral("De-emphasis"),  75e-6);
     return std::make_unique<FmModem>(sampleRateHz, offsetHz, tau, bw,
         tapsParam(params, kFir1TapsKey, kDefaultFir1Taps),

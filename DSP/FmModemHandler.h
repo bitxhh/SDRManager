@@ -12,7 +12,7 @@ class FmModemHandler : public ModemHandler {
 public:
     explicit FmModemHandler(double stationOffsetHz = 0.0,
                             double deemphTauSec    = 75e-6,
-                            double bandwidthHz     = 150'000.0,
+                            double bandwidthHz     = 100'000.0,
                             QObject* parent        = nullptr);
 
     std::vector<modem::ParamDesc> paramDescriptors() const override;

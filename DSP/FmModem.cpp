@@ -23,7 +23,10 @@ FmModem::FmModem(double inputSampleRateHz,
                    fir1Taps, fir2Taps)
     , deemphTau_(deemphTauSec)
 {
-    bandwidth_ = std::clamp(bandwidthHz, 50'000.0, ifSR_ / 2.0 * 0.9);
+    bandwidth_ = std::clamp(bandwidthHz, 30'000.0, ifSR_ / 2.0 * 0.9);
+    // Базовый конструктор получил сырой bandwidthHz (ifSR_ до него неизвестен):
+    // без пересборки FIR1 при bw > IF/2 соседние станции заворачиваются в IF.
+    redesignFir1(bandwidth_);
 
     demodGain_ = ifSR_ / (2.0 * dsp::kPi * kFmMaxDev);
     deemphP_   = std::exp(-1.0 / (deemphTau_ * ifSR_));
@@ -42,7 +45,7 @@ FmModem::FmModem(double inputSampleRateHz,
 // setBandwidth — redesigns FIR1 (pre-decimation channel width)
 // ---------------------------------------------------------------------------
 void FmModem::setBandwidth(double bandwidthHz) {
-    bandwidth_ = std::clamp(bandwidthHz, 50'000.0, ifSR_ / 2.0 * 0.9);
+    bandwidth_ = std::clamp(bandwidthHz, 30'000.0, ifSR_ / 2.0 * 0.9);
     redesignFir1(bandwidth_);
 
     LOG_CAT(LogCat::kDemodInit, LogLevel::Info,

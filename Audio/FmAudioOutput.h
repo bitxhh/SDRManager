@@ -7,6 +7,7 @@
 #include <QIODevice>
 #include <QTimer>
 #include <cstdint>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // FmAudioOutput — receives float32 mono audio from FmModem, resamples
@@ -48,12 +49,24 @@ signals:
     void statusChanged(const QString& message, bool isError);
 
 private:
-    // ── Linear resampler ─────────────────────────────────────────────────────
-    struct LinearResampler {
-        double phase{0.0};
-        float  prev{0.0f};
+    // ── Windowed-sinc polyphase resampler ────────────────────────────────────
+    // 16 тапов × 256 фаз (линейная интерполяция между фазами), Blackman.
+    // Срез 0.46·min(in,out): в отличие от линейной интерполяции не заворачивает
+    // верх спектра обратно в звук. Таблица перестраивается только при смене
+    // отношения > 1% — подстройка ±0.2% от уровня буфера её не трогает.
+    struct SincResampler {
+        static constexpr int kHalf   = 8;
+        static constexpr int kTaps   = 2 * kHalf;
+        static constexpr int kPhases = 256;
+
+        std::vector<float> table;          // (kPhases + 1) × kTaps
+        double             tableRatio{0.0};
+        std::vector<float> buf;            // история входа
+        double             pos{kHalf - 1}; // позиция следующего выхода в buf
+
         QVector<float> process(const QVector<float>& in, double inRate, double outRate);
-        void reset() { phase = 0.0; prev = 0.0f; }
+        void reset() { buf.assign(kHalf - 1, 0.0f); pos = kHalf - 1; tableRatio = 0.0; }
+        void buildTable(double ratio);
     } resampler_;
 
     // ── Sink state ────────────────────────────────────────────────────────────

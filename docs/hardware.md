@@ -42,6 +42,10 @@ SoapySDR is optional and loaded at runtime via `QLibrary("SoapySDR")` (searched 
 with a fallback to `C:/Program Files/PothosSDR/bin/SoapySDR.dll`. If the library isn't found,
 SoapySDR devices are simply not listed; LimeSDR and I/Q file playback keep working.
 
+RTL-SDR (`driver=rtlsdr`) is capped at **2.4 MS/s**: higher rates are filtered out of the
+rate list, and a saved/requested rate above the cap is replaced by the highest allowed one.
+Above 2.4 MS/s the RTL2832U drops samples over USB.
+
 ## Logging
 
 Thread-safe singleton `Logger`. Output: `%APPDATA%\SDRManager\sdrmanager.log`

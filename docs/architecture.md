@@ -97,7 +97,7 @@ DSP/                Signal processing
   ToneGenerator.h/.cpp       ITxSource: sinusoid I/Q generator
 
 Audio/              Audio output
-  FmAudioOutput.h/.cpp       Linear resampler + AGC + QAudioSink (WASAPI)
+  FmAudioOutput.h/.cpp       Windowed-sinc resampler + AGC + QAudioSink (WASAPI)
 
 Application/        UI (Qt widgets only — no DSP, no hardware calls)
   Application.h/.cpp             DeviceSelectionWindow + DeviceDetailWindow
@@ -226,7 +226,7 @@ Combined Pipeline → [pool task] ModemHandler → ChannelModem subclass (FM/NFM
                                                    (ifSR / D2, passed with audioReady)
                                                                ↓ emit audioReady()
                                                    FmAudioOutput::push()
-                                                     ├─ Linear resample → 48 kHz
+                                                     ├─ Sinc resample → 48 kHz
                                                      ├─ AGC (target 0.12 RMS)
                                                      ├─ Mono → stereo
                                                      └─ QAudioSink (WASAPI)

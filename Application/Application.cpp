@@ -960,8 +960,8 @@ void DeviceDetailWindow::applyChannelSelectionChange() {
 // RXTX coordination helper
 // ═══════════════════════════════════════════════════════════════════════════════
 void DeviceDetailWindow::stopAllStreams() {
-    if (radioMonitorPage_ && radioMonitorPage_->isStreaming())
-        radioMonitorPage_->shutdown();
+    if (radioMonitorPage_)
+        radioMonitorPage_->stopStreamSync();
     if (txCtrl_->isTransmitting()) txCtrl_->stopTx();
 }
 
