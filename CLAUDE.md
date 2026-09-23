@@ -21,7 +21,7 @@ Use **Release** for FM listening — Debug defaults to 31-tap FIR1 and can't sus
 | SoapySDR (optional) | runtime-loaded via `QLibrary`; `PATH` or `C:/Program Files/PothosSDR/bin` |
 | FFTW3 | `external/FFTW/` — single precision (float32), static |
 | QCustomPlot | `external/qcustomplot/` — static lib |
-| Catch2 v3.7.1 | `Tests/` — unit tests for FFT, IqCombiner, DSP helpers, and all demodulators (FM, AM, NFM, SSB, CW, SAM) |
+| Catch2 v3.7.1 | `Tests/` — unit tests for FFT, IqCombiner, DSP helpers (FIR design, Nco, IIR highpass, DcBlocker), Pipeline dispatch, FileNaming, ToneGenerator, and all demodulators (FM, AM, NFM, SSB, CW, SAM) |
 
 ## Quick reference
 

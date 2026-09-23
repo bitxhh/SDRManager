@@ -156,6 +156,8 @@ add_executable(SDRManager
         DSP/AudioFileHandler.cpp
         DSP/AudioFileHandler.h
         DSP/IqCombiner.cpp
+        DSP/ToneGenerator.cpp
+        Core/FileNaming.cpp
         DSP/IqCombiner.h
         DSP/ToneGenerator.cpp
         DSP/ToneGenerator.h
@@ -252,6 +254,9 @@ add_executable(SDRManagerTests
         Tests/test_dsputils.cpp
         Tests/test_fftprocessor.cpp
         Tests/test_iqcombiner.cpp
+        Tests/test_filenaming.cpp
+        Tests/test_tonegenerator.cpp
+        Tests/test_pipeline.cpp
 
         DSP/DspUtils.cpp
         DSP/ChannelModem.cpp
@@ -263,6 +268,8 @@ add_executable(SDRManagerTests
         DSP/SamModem.cpp
         DSP/FftProcessor.cpp
         DSP/IqCombiner.cpp
+        DSP/ToneGenerator.cpp
+        Core/FileNaming.cpp
         Core/Pipeline.cpp
         Core/ProfilingHandler.cpp
         Core/Logger.cpp

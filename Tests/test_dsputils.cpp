@@ -3,6 +3,7 @@
 
 #include "DspUtils.h"
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <vector>
@@ -165,4 +166,126 @@ TEST_CASE("CarrierPll locks to an offset carrier", "[dsp][pll]") {
     CHECK_THAT(meanRe,   WithinAbs(amplitude, 0.05));
     CHECK_THAT(meanIm,   WithinAbs(0.0,       0.05));
     CHECK_THAT(pll.freq, WithinAbs(w0,        w0 * 0.05));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// designLowpassFir — windowed-sinc (Blackman), unity DC gain
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("Lowpass FIR is symmetric with unity DC gain", "[dsp][lowpass]") {
+    const int taps = 127;
+    const auto h = dsp::designLowpassFir(taps, 0.1);
+    REQUIRE(static_cast<int>(h.size()) == taps);
+
+    double sum = 0.0;
+    for (double v : h) sum += v;
+    CHECK_THAT(sum, WithinAbs(1.0, 1e-12));
+
+    for (int n = 0; n < taps; ++n)
+        REQUIRE_THAT(h[n], WithinAbs(h[taps - 1 - n], 1e-15));
+}
+
+TEST_CASE("Lowpass FIR passes the passband and rejects the stopband", "[dsp][lowpass]") {
+    const auto h = dsp::designLowpassFir(127, 0.1);
+    CHECK_THAT(firMag(h, 0.02), WithinAbs(1.0, 0.01));
+    CHECK_THAT(firMag(h, 0.05), WithinAbs(1.0, 0.01));
+    CHECK_THAT(firMag(h, 0.1),  WithinAbs(0.5, 0.05));   // -6 dB at cutoff
+    CHECK(firMag(h, 0.2)  < 1e-3);                        // > 60 dB rejection
+    CHECK(firMag(h, 0.45) < 1e-3);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nco — frequency shift by -offset
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("Nco shifts a tone at +offset down to DC", "[dsp][nco]") {
+    const double sr = 1.0e6, off = 123.4e3;
+    dsp::Nco nco;
+    nco.setFrequency(off, sr);
+
+    const double w = 2.0 * kPi * off / sr;
+    for (int n = 0; n < 5000; ++n) {
+        const std::complex<double> in = std::polar(1.0, w * n);
+        const auto out = nco.mix(in);
+        REQUIRE_THAT(out.real(), WithinAbs(1.0, 1e-6));
+        REQUIRE_THAT(out.imag(), WithinAbs(0.0, 1e-6));
+    }
+}
+
+TEST_CASE("Nco phase stays wrapped to [-pi, pi] over a long run", "[dsp][nco]") {
+    dsp::Nco nco;
+    nco.setFrequency(-370.0e3, 1.0e6);   // large positive phase increment
+    for (int n = 0; n < 1'000'000; ++n) {
+        nco.mix({1.0, 0.0});
+        REQUIRE(nco.phase <= kPi);
+        REQUIRE(nco.phase >= -kPi);
+    }
+    // Magnitude is preserved even after a million wraps.
+    CHECK_THAT(std::abs(nco.mix({0.6, 0.8})), WithinAbs(1.0, 1e-12));
+
+    nco.reset();
+    CHECK(nco.phase == 0.0);
+    const auto first = nco.mix({1.0, 0.0});
+    CHECK_THAT(first.real(), WithinAbs(1.0, 1e-15));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IirHighpass1 — first-order audio highpass
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("IirHighpass1 removes DC and passes high frequencies", "[dsp][highpass]") {
+    const double fs = 48000.0;
+    dsp::IirHighpass1 hp;
+    hp.setCutoff(30.0, fs);
+
+    SECTION("step input decays to zero") {
+        double y = 0.0;
+        for (int n = 0; n < 48000; ++n) y = hp.process(1.0);   // 1 s ≫ τ ≈ 5.3 ms
+        CHECK(std::abs(y) < 1e-6);
+    }
+
+    SECTION("1 kHz tone passes with ~unity gain") {
+        const double w = 2.0 * kPi * 1000.0 / fs;
+        double peak = 0.0;
+        for (int n = 0; n < 48000; ++n) {
+            const double y = hp.process(std::sin(w * n));
+            if (n > 24000) peak = std::max(peak, std::abs(y));
+        }
+        CHECK_THAT(peak, WithinAbs(1.0, 0.01));
+    }
+
+    SECTION("reset clears history") {
+        for (int n = 0; n < 100; ++n) hp.process(0.7);
+        hp.reset();
+        dsp::IirHighpass1 fresh;
+        fresh.setCutoff(30.0, fs);
+        CHECK(hp.process(0.3) == fresh.process(0.3));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DcBlocker — complex DC removal on I/Q
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("DcBlocker removes a complex DC offset but keeps the signal", "[dsp][dcblocker]") {
+    dsp::DcBlocker dc;
+    const std::complex<double> offset{0.3, -0.2};
+    const double w = 2.0 * kPi * 0.05;
+
+    const int N = 100'000;   // ≫ τ = 1/(1-alpha) = 10 000 samples
+    std::complex<double> mean{0.0, 0.0};
+    double power = 0.0;
+    const int tail = 10'000;
+    for (int n = 0; n < N; ++n) {
+        const auto y = dc.process(offset + std::polar(0.5, w * n));
+        if (n >= N - tail) {
+            mean  += y;
+            power += std::norm(y);
+        }
+    }
+    mean  /= tail;
+    power /= tail;
+
+    CHECK(std::abs(mean) < 1e-3);
+    CHECK_THAT(power, WithinAbs(0.25, 0.005));   // tone power 0.5² unchanged
+
+    dc.reset();
+    CHECK(dc.prevIn == std::complex<double>{});
+    CHECK(dc.prevOut == std::complex<double>{});
 }
