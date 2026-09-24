@@ -6,6 +6,8 @@
 #include "../DSP/BandpassHandler.h"
 #include "../DSP/ModemHandler.h"
 #include "../DSP/ModemRegistry.h"
+#include "../DSP/NfmModemHandler.h"
+#include "../DSP/DcsDetector.h"
 #include "../DSP/ModemTypes.h"
 
 #include <QCheckBox>
@@ -114,9 +116,14 @@ void DemodulatorPanel::buildUi() {
            "Enable 'Audio' in recording settings to activate."));
     audioCheck_->setEnabled(false);
 
+    nbCheck_ = new QCheckBox(tr("NB"), row1);
+    nbCheck_->setToolTip(
+        tr("Impulse noise blanker: blanks I/Q samples whose power exceeds\n"
+           "the threshold \u00d7 mean power. Threshold and width: \u2699 button."));
+
     settingsButton_ = new QPushButton("\u2699", row1);
     settingsButton_->setFixedWidth(26);
-    settingsButton_->setToolTip("Filter settings (FIR taps)");
+    settingsButton_->setToolTip("Filter settings (FIR taps, noise blanker)");
 
     removeButton_ = new QPushButton("\u2715", row1);
     removeButton_->setFixedWidth(26);
@@ -137,6 +144,8 @@ void DemodulatorPanel::buildUi() {
     hlay1->addSpacing(8);
     hlay1->addWidget(filteredCheck_);
     hlay1->addWidget(audioCheck_);
+    hlay1->addSpacing(8);
+    hlay1->addWidget(nbCheck_);
     hlay1->addStretch();
     hlay1->addWidget(settingsButton_);
     hlay1->addWidget(removeButton_);
@@ -152,6 +161,23 @@ void DemodulatorPanel::buildUi() {
     statusLabel_->setStyleSheet("color: gray; font-size: 11px;");
 
     hlay2->addWidget(statusLabel_, 1);
+
+    classLabel_ = new QLabel(this);
+    classLabel_->setStyleSheet("color: gray; font-size: 11px;");
+    hlay2->addWidget(classLabel_);
+
+    ctcssLabel_ = new QLabel(this);
+    ctcssLabel_->setStyleSheet("color: gray; font-size: 11px;");
+    hlay2->addWidget(ctcssLabel_);
+    dcsLabel_ = new QLabel(this);
+    dcsLabel_->setStyleSheet("color: gray; font-size: 11px;");
+    hlay2->addWidget(dcsLabel_);
+
+    autoModeCheck_ = new QCheckBox("Auto mode", this);
+    autoModeCheck_->setToolTip("Switch the mode to the classifier's result\n"
+                               "(3 results in a row with confidence \u2265 80%)");
+    connect(autoModeCheck_, &QCheckBox::toggled, this, [this](bool) { vote_.reset(); });
+    hlay2->addWidget(autoModeCheck_);
     outer->addWidget(row2);
 
     // в”Ђв”Ђ Wiring в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -172,6 +198,7 @@ void DemodulatorPanel::buildUi() {
         if (audioOut_) audioOut_->setVolume(volume_);
     });
 
+    connect(nbCheck_, &QCheckBox::toggled, this, [this]() { pushNbToHandler(); });
     connect(settingsButton_, &QPushButton::clicked,
             this, &DemodulatorPanel::openSettingsDialog);
 
@@ -301,6 +328,18 @@ void DemodulatorPanel::detachFromController() {
 }
 
 // ---------------------------------------------------------------------------
+void DemodulatorPanel::setClassification(const QString& type, double confidence) {
+    if (classLabel_) {
+        classLabel_->setText(QString("Classifier: %1 %2%")
+                             .arg(type).arg(qRound(confidence * 100.0)));
+    }
+    if (!autoModeCheck_ || !autoModeCheck_->isChecked()) return;
+    if (!vote_.feed(type, confidence)) return;
+    const int idx = modeCombo_->findText(type);
+    if (idx >= 0 && idx != modeCombo_->currentIndex())
+        modeCombo_->setCurrentIndex(idx);   // -> onModeChanged
+}
+
 void DemodulatorPanel::onModeChanged(int index) {
     const bool active = (index != 0);
 
@@ -433,6 +472,7 @@ void DemodulatorPanel::applyDemod() {
     for (const ParamControl& pc : params_)
         demodHandler_->setParam(pc.name, paramInternalValue(pc));
     pushTapsToHandler();
+    pushNbToHandler();
 
     audioOut_ = new FmAudioOutput(this);
     audioOut_->setVolume(volume_);
@@ -447,6 +487,23 @@ void DemodulatorPanel::applyDemod() {
 
     connect(demodHandler_, &ModemHandler::audioReady,
             audioOut_,     &FmAudioOutput::push, Qt::QueuedConnection);
+
+    if (auto* nfm = qobject_cast<NfmModemHandler*>(demodHandler_)) {
+        connect(nfm, &NfmModemHandler::ctcssToneChanged,
+                this, [this](double hz) {
+                    if (!ctcssLabel_) return;
+                    ctcssLabel_->setText(hz > 0.0
+                        ? QString("CTCSS: %1 Hz").arg(hz, 0, 'f', 1)
+                        : QString());
+                }, Qt::QueuedConnection);
+        connect(nfm, &NfmModemHandler::dcsCodeChanged,
+                this, [this](int code) {
+                    if (!dcsLabel_) return;
+                    dcsLabel_->setText(code > 0
+                        ? QStringLiteral("DCS: ") + DcsDetector::codeName(code)
+                        : QString());
+                }, Qt::QueuedConnection);
+    }
 
     ctrl_->addExtraHandler(demodHandler_);
 
@@ -470,6 +527,8 @@ void DemodulatorPanel::teardownDemod() {
 
     delete demodHandler_;
     demodHandler_ = nullptr;
+    if (ctcssLabel_) ctcssLabel_->clear();
+    if (dcsLabel_)   dcsLabel_->clear();
 
     if (audioOut_) {
         audioOut_->teardown();
@@ -588,6 +647,7 @@ DemodPanelSettings DemodulatorPanel::state() const {
     if (volumeSlider_)  s.volumePct      = volumeSlider_->value();
     if (filteredCheck_) s.recordFiltered = filteredCheck_->isChecked();
     if (audioCheck_)    s.recordAudio    = audioCheck_->isChecked();
+    if (autoModeCheck_) s.autoMode       = autoModeCheck_->isChecked();
 
     // Dynamic per-modem params: UI value for spins, internal value for combos.
     for (const ParamControl& pc : params_) {
@@ -597,6 +657,9 @@ DemodPanelSettings DemodulatorPanel::state() const {
     s.params.insert(QString::fromLatin1(ModemHandler::kFir1TapsKey), fir1Taps_);
     s.params.insert(QString::fromLatin1(ModemHandler::kFir2TapsKey), fir2Taps_);
     s.params.insert(QString::fromLatin1(ModemHandler::kChanTapsKey), chanTaps_);
+    s.params.insert(QStringLiteral("NB On"), nbCheck_ && nbCheck_->isChecked() ? 1.0 : 0.0);
+    s.params.insert(QString::fromLatin1(kNbThresholdKey), nbThreshold_);
+    s.params.insert(QString::fromLatin1(kNbWidthKey), nbWidthUs_);
     return s;
 }
 
@@ -620,6 +683,7 @@ void DemodulatorPanel::applyState(const DemodPanelSettings& s) {
 
     if (filteredCheck_) { QSignalBlocker b(filteredCheck_); filteredCheck_->setChecked(s.recordFiltered); }
     if (audioCheck_)    { QSignalBlocker b(audioCheck_);    audioCheck_->setChecked(s.recordAudio); }
+    if (autoModeCheck_) autoModeCheck_->setChecked(s.autoMode);
 
     // Tap counts must be in place before the mode is selected: onModeChanged
     // may build the demodulator immediately while streaming.
@@ -630,6 +694,16 @@ void DemodulatorPanel::applyState(const DemodPanelSettings& s) {
     restoreTaps(ModemHandler::kFir1TapsKey, fir1Taps_);
     restoreTaps(ModemHandler::kFir2TapsKey, fir2Taps_);
     restoreTaps(ModemHandler::kChanTapsKey, chanTaps_);
+
+    nbThreshold_ = std::clamp(s.params.value(QString::fromLatin1(kNbThresholdKey),
+                                             kDefaultNbThreshold), 1.0, 1000.0);
+    nbWidthUs_   = std::clamp(s.params.value(QString::fromLatin1(kNbWidthKey),
+                                             kDefaultNbWidthUs), 1.0, 1000.0);
+    if (nbCheck_) {
+        QSignalBlocker b(nbCheck_);
+        nbCheck_->setChecked(s.params.value(QStringLiteral("NB On"), 0.0) != 0.0);
+    }
+    pushNbToHandler();
 
     // Select the mode вЂ” onModeChanged rebuilds the param row with defaults,
     // then we overwrite those defaults with any saved values below.
@@ -667,6 +741,13 @@ void DemodulatorPanel::pushTapsToHandler() {
     demodHandler_->setParam(QString::fromLatin1(ModemHandler::kChanTapsKey), chanTaps_);
 }
 
+void DemodulatorPanel::pushNbToHandler() {
+    if (!demodHandler_) return;
+    const bool on = nbCheck_ && nbCheck_->isChecked();
+    demodHandler_->setParam(QString::fromLatin1(kNbThresholdKey), on ? nbThreshold_ : 0.0);
+    demodHandler_->setParam(QString::fromLatin1(kNbWidthKey), nbWidthUs_);
+}
+
 void DemodulatorPanel::openSettingsDialog() {
     const QString mode   = currentMode();
     const bool    isOff  = mode.isEmpty() || mode == QLatin1String("Off");
@@ -701,6 +782,22 @@ void DemodulatorPanel::openSettingsDialog() {
         form->addRow("Channel taps:", chanSpin);
     }
 
+    auto* nbThrSpin = new QDoubleSpinBox(&dlg);
+    nbThrSpin->setRange(1.0, 1000.0);
+    nbThrSpin->setDecimals(1);
+    nbThrSpin->setValue(nbThreshold_);
+    nbThrSpin->setSuffix(" \u00d7");
+    nbThrSpin->setToolTip("NB blanks samples whose |x|\u00b2 exceeds this multiple of the mean power");
+    form->addRow("NB threshold:", nbThrSpin);
+
+    auto* nbWidthSpin = new QDoubleSpinBox(&dlg);
+    nbWidthSpin->setRange(1.0, 1000.0);
+    nbWidthSpin->setDecimals(0);
+    nbWidthSpin->setValue(nbWidthUs_);
+    nbWidthSpin->setSuffix(" \u00b5s");
+    nbWidthSpin->setToolTip("Blanking window around each detected impulse");
+    form->addRow("NB width:", nbWidthSpin);
+
     auto* hint = new QLabel(
         "More taps → sharper filter, but more CPU and latency.\n"
         "FIR1 runs at the full sample rate — keep it small in Debug builds.\n"
@@ -720,9 +817,15 @@ void DemodulatorPanel::openSettingsDialog() {
         fir1Spin->setValue(kDefaultFir1Taps);
         if (fir2Spin) fir2Spin->setValue(kDefaultFir2Taps);
         if (chanSpin) chanSpin->setValue(kDefaultChanTaps);
+        nbThrSpin->setValue(kDefaultNbThreshold);
+        nbWidthSpin->setValue(kDefaultNbWidthUs);
     });
 
     if (dlg.exec() != QDialog::Accepted) return;
+
+    nbThreshold_ = nbThrSpin->value();
+    nbWidthUs_   = nbWidthSpin->value();
+    pushNbToHandler();
 
     const int newFir1 = sanitizeTaps(fir1Spin->value());
     const int newFir2 = fir2Spin ? sanitizeTaps(fir2Spin->value()) : fir2Taps_;

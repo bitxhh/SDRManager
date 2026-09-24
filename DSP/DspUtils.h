@@ -55,6 +55,69 @@ struct DcBlocker {
 };
 
 // ---------------------------------------------------------------------------
+// NoiseBlanker — impulse-noise blanker for complex I/Q (before any filtering,
+// so impulses are still short). Power |x|² is compared with an exponential
+// moving average; a sample above threshold × average starts a blanking
+// window of `width` seconds. The output is delayed by `ramp` samples
+// (look-ahead) so the gain fades to zero exactly when the impulse leaves the
+// delay line, and fades back in afterwards — no hard-gating clicks.
+//
+// The average is fed min(|x|², threshold × average) so impulses cannot pull
+// it up. threshold <= 0 disables the blanker: process() then passes samples
+// through undelayed.
+// ---------------------------------------------------------------------------
+struct NoiseBlanker {
+    void configure(double sampleRateHz, double threshold, double widthSec);
+    [[nodiscard]] bool enabled() const { return threshold_ > 0.0; }
+    [[nodiscard]] int  delaySamples() const { return enabled() ? ramp_ : 0; }
+    [[nodiscard]] long long blankedCount() const { return blanked_; }
+    void reset();
+
+    std::complex<double> process(std::complex<double> x) {
+        if (threshold_ <= 0.0) return x;
+
+        const double p = x.real() * x.real() + x.imag() * x.imag();
+        if (count_ < warmLen_) {
+            // Warm-up: plain running mean, no triggering yet.
+            ++count_;
+            avg_ += (p - avg_) / count_;
+        } else {
+            const double limit = threshold_ * avg_;
+            if (p > limit) hold_ = ramp_ + width_;
+            avg_ += alpha_ * (std::min(p, limit) - avg_);
+        }
+
+        const std::complex<double> y = delay_[head_];
+        delay_[head_] = x;
+        if (++head_ == ramp_) head_ = 0;
+
+        if (hold_ > 0) {
+            --hold_;
+            gain_ = std::max(0.0, gain_ - step_);
+        } else {
+            gain_ = std::min(1.0, gain_ + step_);
+        }
+        if (gain_ < 1.0) ++blanked_;
+        return y * gain_;
+    }
+
+private:
+    std::vector<std::complex<double>> delay_;
+    double threshold_{0.0};
+    double alpha_{0.0};
+    double step_{1.0};
+    double avg_{0.0};
+    double gain_{1.0};
+    int    ramp_{1};
+    int    width_{1};
+    int    head_{0};
+    int    hold_{0};
+    int    count_{0};
+    int    warmLen_{1};
+    long long blanked_{0};
+};
+
+// ---------------------------------------------------------------------------
 // NCO — numerically controlled oscillator for frequency shifting.
 // mix() multiplies input by e^{j*phase} and advances phase.
 // ---------------------------------------------------------------------------

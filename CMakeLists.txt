@@ -61,14 +61,14 @@ add_executable(SDRManager
         Application/SessionManager.h
         Application/ClassifierController.cpp
         Application/ClassifierController.h
-        Application/ChannelPanel.cpp
-        Application/ChannelPanel.h
         Application/FrequencyDial.cpp
         Application/FrequencyDial.h
         Application/DemodulatorPanel.cpp
         Application/DemodulatorPanel.h
         Application/RadioMonitorPage.cpp
         Application/RadioMonitorPage.h
+        Application/SpectrumMarkers.cpp
+        Application/SpectrumMarkers.h
         Application/WaterfallView.cpp
         Application/WaterfallView.h
 
@@ -121,6 +121,7 @@ add_executable(SDRManager
         DSP/IModem.h
         DSP/IModulator.h
         DSP/ModemTypes.h
+        DSP/AudioProcessor.h
         DSP/ChannelModem.cpp
         DSP/ChannelModem.h
         DSP/ModemHandler.cpp
@@ -134,6 +135,10 @@ add_executable(SDRManager
         DSP/AmModemHandler.cpp
         DSP/AmModemHandler.h
         DSP/NfmModem.cpp
+        DSP/CtcssDetector.cpp
+        DSP/CtcssDetector.h
+        DSP/DcsDetector.cpp
+        DSP/DcsDetector.h
         DSP/NfmModem.h
         DSP/NfmModemHandler.cpp
         DSP/NfmModemHandler.h
@@ -185,6 +190,8 @@ add_executable(SDRManager
         Core/ProfilingHandler.h
         Core/RecordingSettings.h
         Core/WaterfallSettings.h
+        Core/SpectrumTraces.cpp
+        Core/SpectrumTraces.h
 )
 
 target_include_directories(SDRManager PRIVATE
@@ -248,6 +255,8 @@ add_executable(SDRManagerTests
         Tests/test_fmdemod.cpp
         Tests/test_amdemod.cpp
         Tests/test_nfmdemod.cpp
+        Tests/test_ctcss.cpp
+        Tests/test_dcs.cpp
         Tests/test_ssbdemod.cpp
         Tests/test_cwdemod.cpp
         Tests/test_samdemod.cpp
@@ -257,20 +266,29 @@ add_executable(SDRManagerTests
         Tests/test_filenaming.cpp
         Tests/test_tonegenerator.cpp
         Tests/test_pipeline.cpp
+        Tests/test_classifierhandler.cpp
+        Tests/test_spectrumtraces.cpp
+        Tests/test_audiochain.cpp
+        Tests/test_noiseblanker.cpp
+        Tests/test_classificationvote.cpp
 
         DSP/DspUtils.cpp
         DSP/ChannelModem.cpp
         DSP/FmModem.cpp
         DSP/AmModem.cpp
         DSP/NfmModem.cpp
+        DSP/CtcssDetector.cpp
+        DSP/DcsDetector.cpp
         DSP/SsbModem.cpp
         DSP/CwModem.cpp
         DSP/SamModem.cpp
         DSP/FftProcessor.cpp
         DSP/IqCombiner.cpp
         DSP/ToneGenerator.cpp
+        DSP/ClassifierHandler.cpp
         Core/FileNaming.cpp
         Core/Pipeline.cpp
+        Core/SpectrumTraces.cpp
         Core/ProfilingHandler.cpp
         Core/Logger.cpp
         Core/LoggerConfig.cpp

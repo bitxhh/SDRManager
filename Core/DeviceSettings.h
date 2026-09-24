@@ -20,6 +20,7 @@ struct DemodPanelSettings {
     int                  volumePct      = 80;
     bool                 recordFiltered = false;
     bool                 recordAudio    = false;
+    bool                 autoMode       = false;   // follow the AI classifier
 };
 
 // ---------------------------------------------------------------------------

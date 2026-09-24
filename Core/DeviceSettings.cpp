@@ -80,6 +80,7 @@ DeviceSettings DeviceSettings::load(const QString& serial) {
         d.volumePct      = p.value("volumePct").toInt(d.volumePct);
         d.recordFiltered = p.value("recordFiltered").toBool(d.recordFiltered);
         d.recordAudio    = p.value("recordAudio").toBool(d.recordAudio);
+        d.autoMode       = p.value("autoMode").toBool(d.autoMode);
 
         const QJsonObject params = p.value("params").toObject();
         for (auto it = params.begin(); it != params.end(); ++it)
@@ -115,6 +116,7 @@ bool DeviceSettings::save(const QString& serial) const {
         p["volumePct"]      = d.volumePct;
         p["recordFiltered"] = d.recordFiltered;
         p["recordAudio"]    = d.recordAudio;
+        p["autoMode"]       = d.autoMode;
 
         QJsonObject params;
         for (auto it = d.params.begin(); it != d.params.end(); ++it)

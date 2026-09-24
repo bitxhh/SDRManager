@@ -75,6 +75,12 @@ protected:
     virtual void applyParam(ChannelModem& dem,
                             const QString& name, double value) {}
 
+    // Add post-demod IAudioProcessor stages to a freshly built demodulator.
+    // Called on every (re)build; afterwards the full param snapshot is
+    // offered to the chain. Params a stage accepts never reach applyParam().
+    virtual void buildAudioChain(ChannelModem& dem,
+                                 const std::map<QString, double>& params) {}
+
     // Scheme name (IModem). Also used in log strings.
     const char* modemName() const override = 0;
 
@@ -88,6 +94,11 @@ protected:
 private:
     // Tap-count params ("... taps") can't be applied live — they rebuild dem_.
     static bool isTapsParam(const QString& name);
+
+    // createDemodulator() + buildAudioChain() + param snapshot → common
+    // params (noise blanker) and audio chain.
+    std::unique_ptr<ChannelModem> makeDemodulator(double sampleRateHz,
+                                                  const std::map<QString, double>& params);
 
     double currentOffsetHz_;   // last applied NCO offset (worker thread)
     mutable std::mutex paramMutex_;

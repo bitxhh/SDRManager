@@ -10,6 +10,10 @@
 #include "../DSP/WaterfallHandler.h"
 #include "../Hardware/DeviceController.h"
 #include "qcustomplot.h"
+#include "ClassifierController.h"
+
+#include <QCoreApplication>
+#include <QPointer>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -67,8 +71,23 @@ RadioMonitorPage::RadioMonitorPage(IDevice*          device,
     connect(ctrl_, &CombinedRxController::phaseMetric,
             this,  &RadioMonitorPage::onPhaseMetric);
 
+    // AI classifier: handlers go into the combined pipeline. QPointer — ctrl_
+    // is destroyed before classifierCtrl_ (both children of this page).
+    {
+        QPointer<CombinedRxController> c(ctrl_);
+        classifierCtrl_ = new ClassifierController(
+            [c](IPipelineHandler* h) { if (c) c->addExtraHandler(h); },
+            [c](IPipelineHandler* h) { if (c) c->removeExtraHandler(h); },
+            this);
+    }
+    connect(classifierCtrl_, &ClassifierController::classificationReady,
+            this, [this](int slot, const QString& type, double confidence) {
+                if (auto* p = panelForSlot(slot)) p->setClassification(type, confidence);
+            });
+
     loadRecordingSettings();
     waterfallSettings_ = WaterfallSettings::load();
+    traceSettings_     = SpectrumTraceSettings::load();
     waterfallHandler_  = new WaterfallHandler(this);
     buildUi();
 
@@ -168,12 +187,110 @@ void RadioMonitorPage::buildUi() {
         hlay->addWidget(settingsBtn_);
         hlay->addSpacing(12);
         hlay->addWidget(waterfallBtn_);
+
+        hlay->addSpacing(12);
+        classifierCheck_ = new QCheckBox("AI classifier", row);
+        classifierCheck_->setToolTip("AI classifier (Python/classifier_service.py) on every demodulator's channel");
+        classifierStatus_ = new QLabel("Stopped", row);
+        classifierStatus_->setStyleSheet("color: gray; font-size: 11px;");
+        hlay->addWidget(classifierCheck_);
+        hlay->addWidget(classifierStatus_);
+
+        // Трассы спектра: каждая включается независимо, состояние — в QSettings.
+        hlay->addSpacing(12);
+        static const char* kTraceNames[SpectrumTraces::kKindCount] = {"Live", "Max", "Min", "Avg"};
+        static const char* kTraceTips[SpectrumTraces::kKindCount] = {
+            "Current spectrum", "Max hold", "Min hold",
+            "Exponential average of linear power"};
+        for (int k = 0; k < SpectrumTraces::kKindCount; ++k) {
+            auto* cb = new QCheckBox(kTraceNames[k], row);
+            cb->setToolTip(kTraceTips[k]);
+            cb->setChecked(traceSettings_.visible[k]);
+            hlay->addWidget(cb);
+            connect(cb, &QCheckBox::toggled, this, [this, k](bool on) {
+                traceSettings_.visible[k] = on;
+                traceSettings_.save();
+                applyTraceSettings();
+            });
+        }
+        auto* avgSpin = new QSpinBox(row);
+        avgSpin->setRange(SpectrumTraceSettings::kMinAverageFrames,
+                          SpectrumTraceSettings::kMaxAverageFrames);
+        avgSpin->setValue(traceSettings_.averageFrames);
+        avgSpin->setSuffix(" fr");
+        avgSpin->setToolTip("Averaging length N (α = 1/N)");
+        hlay->addWidget(avgSpin);
+        connect(avgSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int n) {
+            traceSettings_.averageFrames = n;
+            traceSettings_.save();
+            applyTraceSettings();
+        });
+        auto* clearBtn = new QPushButton("Clear", row);
+        clearBtn->setToolTip("Restart Max/Min/Avg accumulation");
+        hlay->addWidget(clearBtn);
+        connect(clearBtn, &QPushButton::clicked, this, [this] { traces_.clear(); });
+
+        // Маркеры (8.3): Ctrl+ЛКМ — поставить/перетащить, Ctrl+ПКМ — удалить.
+        hlay->addSpacing(12);
+        hlay->addWidget(new QLabel("Mk:", row));
+        markerKindCombo_ = new QComboBox(row);
+        markerKindCombo_->addItems({"Live", "Max", "Min", "Avg"});
+        markerKindCombo_->setToolTip("Trace of the active marker (and of new markers).\n"
+                                     "Ctrl+Left click: place / drag marker, Ctrl+Right click: remove");
+        hlay->addWidget(markerKindCombo_);
+        connect(markerKindCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int k) {
+            if (!markers_ || markers_->active() < 0) return;
+            markers_->setKind(markers_->active(), static_cast<SpectrumTraces::Kind>(k));
+            refreshMarkers();
+        });
+        auto* peakBtn = new QPushButton("Peak", row);
+        peakBtn->setToolTip("Move the active marker to the highest point of the visible span");
+        hlay->addWidget(peakBtn);
+        connect(peakBtn, &QPushButton::clicked, this, [this] { markerPeak(false); });
+        auto* nextBtn = new QPushButton("Next", row);
+        nextBtn->setToolTip("Move the active marker to the next lower peak");
+        hlay->addWidget(nextBtn);
+        connect(nextBtn, &QPushButton::clicked, this, [this] { markerPeak(true); });
+        markerDeltaBtn_ = new QPushButton("\u0394", row);
+        markerDeltaBtn_->setCheckable(true);
+        markerDeltaBtn_->setToolTip("Delta mode: the active marker becomes the reference,\n"
+                                    "other markers show \u0394f / \u0394dB relative to it");
+        hlay->addWidget(markerDeltaBtn_);
+        connect(markerDeltaBtn_, &QPushButton::toggled, this, [this](bool on) {
+            if (!markers_) return;
+            markers_->setDeltaRef(on ? markers_->active() : -1);
+            refreshMarkers();
+        });
+        auto* clrMkBtn = new QPushButton("Clr Mk", row);
+        clrMkBtn->setToolTip("Remove all markers");
+        hlay->addWidget(clrMkBtn);
+        connect(clrMkBtn, &QPushButton::clicked, this, [this] {
+            if (!markers_) return;
+            markers_->clear();
+            refreshMarkers();
+        });
+
         hlay->addStretch();
         outer->addWidget(row);
 
         connect(addDemodBtn_,  &QPushButton::clicked, this, &RadioMonitorPage::addDemodulator);
         connect(settingsBtn_,  &QPushButton::clicked, this, &RadioMonitorPage::openRecordingSettings);
         connect(waterfallBtn_, &QPushButton::clicked, this, &RadioMonitorPage::openWaterfallSettings);
+        connect(classifierCheck_, &QCheckBox::toggled, this, &RadioMonitorPage::onClassifierToggled);
+        connect(classifierCtrl_, &ClassifierController::classifierStarted, this, [this]() {
+            classifierStatus_->setStyleSheet("color: #00cc44; font-size: 11px;");
+            classifierStatus_->setText("Running");
+        });
+        connect(classifierCtrl_, &ClassifierController::classifierStopped, this, [this]() {
+            classifierStatus_->setStyleSheet("color: gray; font-size: 11px;");
+            classifierStatus_->setText("Stopped");
+            QSignalBlocker b(classifierCheck_);
+            classifierCheck_->setChecked(false);
+        });
+        connect(classifierCtrl_, &ClassifierController::classifierError, this, [this](const QString& msg) {
+            classifierStatus_->setStyleSheet("color: #ff4444; font-size: 11px;");
+            classifierStatus_->setText("Error: " + msg);
+        });
     }
 
     // ── Фазовая синхронизация каналов (виден только при ≥2 RX) ──────────────
@@ -269,8 +386,15 @@ void RadioMonitorPage::buildUi() {
 
 // ---------------------------------------------------------------------------
 void RadioMonitorPage::setupFftPlot() {
-    fftPlot_->addGraph();
-    fftPlot_->graph(0)->setPen(QPen(QColor(0, 200, 255), 1.2));
+    // graph(k) ↔ SpectrumTraces::Kind k. graph(0) (Live) всегда содержит данные —
+    // по нему считаются границы зума, даже когда он скрыт.
+    const QColor traceColors[SpectrumTraces::kKindCount] = {
+        QColor(0, 200, 255), QColor(255, 90, 90), QColor(90, 220, 90), QColor(255, 200, 0)};
+    for (int k = 0; k < SpectrumTraces::kKindCount; ++k) {
+        fftPlot_->addGraph();
+        fftPlot_->graph(k)->setPen(QPen(traceColors[k], 1.2));
+    }
+    applyTraceSettings();
 
     fftPlot_->xAxis->setLabel("Frequency (MHz)");
     fftPlot_->yAxis->setLabel("Power (dB)");
@@ -298,6 +422,16 @@ void RadioMonitorPage::setupFftPlot() {
     centerLine_->end->setCoords  (kFreqDefaultMHz,   10.0);
     centerLine_->start->setType(QCPItemPosition::ptPlotCoords);
     centerLine_->end->setType  (QCPItemPosition::ptPlotCoords);
+
+    // Noise floor estimate (grey dashed, horizontal across the visible band).
+    noiseLine_ = new QCPItemLine(fftPlot_);
+    noiseLine_->setPen(QPen(QColor(200, 200, 200, 180), 1.0, Qt::DashLine));
+    noiseLine_->setAntialiased(false);
+    noiseLine_->start->setType(QCPItemPosition::ptPlotCoords);
+    noiseLine_->end->setType  (QCPItemPosition::ptPlotCoords);
+    noiseLine_->setVisible(false);
+
+    markers_ = std::make_unique<SpectrumMarkers>(fftPlot_);
 
     // X-axis zoom clamp.
     connect(fftPlot_->xAxis, qOverload<const QCPRange&>(&QCPAxis::rangeChanged),
@@ -350,17 +484,34 @@ void RadioMonitorPage::setupFftPlot() {
     // ЛКМ на спектре: край полосы — ширина фильтра, внутри полосы — драг VFO
     // этого демода, вне полос — перестройка первого активного демода
     // (см. handleTunePress).
+    // С Ctrl — маркеры (8.3): ЛКМ ставит/тащит, ПКМ удаляет ближайший.
     connect(fftPlot_, &QCustomPlot::mousePress, this, [this](QMouseEvent* event) {
+        const double mhz  = fftPlot_->xAxis->pixelToCoord(event->pos().x());
+        const bool   ctrl = event->modifiers() & Qt::ControlModifier;
+        if (ctrl && event->button() == Qt::LeftButton) { markerPress(mhz); return; }
+        if (ctrl && event->button() == Qt::RightButton) {
+            markers_->remove(markers_->nearest(mhz, hitToleranceMHz()));
+            syncMarkerCombo();
+            refreshMarkers();
+            return;
+        }
         if (event->button() != Qt::LeftButton) return;
-        handleTunePress(fftPlot_->xAxis->pixelToCoord(event->pos().x()));
+        handleTunePress(mhz);
     });
     connect(fftPlot_, &QCustomPlot::mouseMove, this, [this](QMouseEvent* event) {
         const double mhz = fftPlot_->xAxis->pixelToCoord(event->pos().x());
+        if (markerDrag_) {
+            markers_->setFreq(markers_->active(), mhz);
+            refreshMarkers();
+            return;
+        }
         if (event->buttons() & Qt::LeftButton) handleTuneDrag(mhz);
         else                                   updateHoverCursor(fftPlot_, mhz);
     });
     connect(fftPlot_, &QCustomPlot::mouseRelease, this, [this](QMouseEvent* event) {
-        if (event->button() == Qt::LeftButton) endTuneDrag();
+        if (event->button() != Qt::LeftButton) return;
+        if (markerDrag_) { markerDrag_ = false; return; }
+        endTuneDrag();
     });
 }
 
@@ -504,6 +655,7 @@ void RadioMonitorPage::applyFrequency() {
     if (ctrl_) ctrl_->setFftCenterFreq(mhz);
     if (waterfallHandler_) waterfallHandler_->setCenterFrequency(mhz);
     for (auto* p : panels_) p->setCenterFreqMHz(mhz);
+    syncClassifierChannels();
 
     if (centerLine_) {
         centerLine_->start->setCoords(mhz, -130.0);
@@ -581,6 +733,10 @@ void RadioMonitorPage::startStream() {
     // Водопад: combinedPipeline_ пересоздаётся на каждый старт — цепляем заново.
     waterfallHandler_->setCenterFrequency(cfg.loFreqMHz);
     ctrl_->addExtraHandler(waterfallHandler_);
+
+    // Классификатор: extra handlers тоже сброшены при остановке.
+    syncClassifierChannels();
+    classifierCtrl_->reattach();
 
     startBtn_->setEnabled(false);
     stopBtn_->setEnabled(true);
@@ -692,7 +848,9 @@ void RadioMonitorPage::addDemodulator() {
         return;
     }
 
-    const int slot = panels_.size();
+    // First free slot — slots stay unique after removals.
+    int slot = 0;
+    while (panelForSlot(slot)) ++slot;
     auto* panel = new DemodulatorPanel(slot, this);
 
     panel->attachToController(ctrl_);
@@ -702,7 +860,10 @@ void RadioMonitorPage::addDemodulator() {
     connect(panel, &DemodulatorPanel::removeRequested,
             this,  &RadioMonitorPage::removeDemodulator);
     connect(panel, &DemodulatorPanel::vfoChanged,
-            this,  [this](int, double, double) { updateFilterBands(); });
+            this,  [this, panel](int, double, double) {
+                updateFilterBands();
+                syncClassifierChannel(panel);
+            });
 
     // Insert before the stretch item at the end of panelsLayout_.
     const int insertAt = panelsLayout_->count() - 1;
@@ -735,28 +896,70 @@ void RadioMonitorPage::addDemodulator() {
         panel->onStreamStarted();
     }
 
+    classifierCtrl_->addSlot(slot);
+    syncClassifierChannel(panel);
     updateFilterBands();
 }
 
 // ---------------------------------------------------------------------------
 void RadioMonitorPage::removeDemodulator(int slotIndex) {
-    if (slotIndex < 0 || slotIndex >= panels_.size()) return;
+    const int pos = panelPos(slotIndex);
+    if (pos < 0) return;
 
     endTuneDrag();   // индексы panels_ сдвигаются — активный драг недействителен
 
-    DemodulatorPanel* panel = panels_.takeAt(slotIndex);
+    classifierCtrl_->removeSlot(slotIndex);
+
+    DemodulatorPanel* panel = panels_.takeAt(pos);
     panel->detachFromController();
     panelsLayout_->removeWidget(panel);
     panel->deleteLater();
 
-    if (slotIndex < vfoBands_.size()) {
-        QCPItemRect* band = vfoBands_.takeAt(slotIndex);
+    if (pos < vfoBands_.size()) {
+        QCPItemRect* band = vfoBands_.takeAt(pos);
         fftPlot_->removeItem(band);
     }
 
     // No renumbering — slot index stays stable per panel instance.
     updateFilterBands();
     fftPlot_->replot(QCustomPlot::rpQueuedReplot);
+}
+
+// ---------------------------------------------------------------------------
+// AI classifier
+// ---------------------------------------------------------------------------
+DemodulatorPanel* RadioMonitorPage::panelForSlot(int slot) const {
+    const int pos = panelPos(slot);
+    return pos >= 0 ? panels_[pos] : nullptr;
+}
+
+int RadioMonitorPage::panelPos(int slot) const {
+    for (int i = 0; i < panels_.size(); ++i)
+        if (panels_[i]->slotIndex() == slot) return i;
+    return -1;
+}
+
+void RadioMonitorPage::syncClassifierChannel(DemodulatorPanel* p) {
+    if (!classifierCtrl_ || !p) return;
+    const double offHz = (p->vfoFreqMHz() - centerFreqMHz()) * 1e6;
+    const double bwHz  = p->currentMode().isEmpty() ? 0.0 : p->currentBwMHz() * 1e6;
+    classifierCtrl_->setChannel(p->slotIndex(), offHz, bwHz);
+}
+
+void RadioMonitorPage::syncClassifierChannels() {
+    for (auto* p : panels_) syncClassifierChannel(p);
+}
+
+void RadioMonitorPage::onClassifierToggled(bool on) {
+    if (!on) { classifierCtrl_->stop(); return; }
+    const QString pyExe  = qEnvironmentVariable("STAND_PYTHON_EXE", "python3");
+    const QString script = qEnvironmentVariable("STAND_CLASSIFIER_SCRIPT",
+                               QCoreApplication::applicationDirPath()
+                               + "/../Python/classifier_service.py");
+    classifierStatus_->setStyleSheet("color: gray; font-size: 11px;");
+    classifierStatus_->setText("Starting\u2026");
+    syncClassifierChannels();
+    classifierCtrl_->start(pyExe, script);
 }
 
 // ---------------------------------------------------------------------------
@@ -807,7 +1010,14 @@ void RadioMonitorPage::updateFilterBands() {
 
 // ---------------------------------------------------------------------------
 void RadioMonitorPage::onFftReady(FftFrame frame) {
-    fftPlot_->graph(0)->setData(frame.freqMHz, frame.powerDb);
+    // Смена центральной частоты / sample rate / размера FFT меняет ось —
+    // SpectrumTraces сбрасывает накопление сам.
+    traces_.update(frame.freqMHz, frame.powerDb);
+    for (int k = 0; k < SpectrumTraces::kKindCount; ++k) {
+        if (k != SpectrumTraces::Live && !traceSettings_.visible[k]) continue;
+        fftPlot_->graph(k)->setData(traces_.freqMHz(),
+                                    traces_.trace(static_cast<SpectrumTraces::Kind>(k)), true);
+    }
 
     if (centerLine_) {
         const double mhz = centerFreqMHz();
@@ -827,6 +1037,101 @@ void RadioMonitorPage::onFftReady(FftFrame frame) {
         waterfallView_->setVisibleFreqRange(r.lower, r.upper);
     }
 
+    updateNoiseFloor();
+    if (markers_) markers_->refresh(traces_);
+    fftDirty_ = true;
+}
+
+void RadioMonitorPage::updateNoiseFloor() {
+    if (!noiseLine_) return;
+    // Average-трасса считается всегда (даже скрытая) и гораздо менее шумная,
+    // чем Live — 20-й перцентиль по ней стабилен от кадра к кадру.
+    const QVector<double>& f = traces_.freqMHz();
+    const QVector<double>& p = traces_.trace(SpectrumTraces::Average);
+    const QCPRange r = fftPlot_->xAxis->range();
+    int first = 0, last = -1;
+    visibleBinRange(first, last);
+    noiseFloorDb_ = FftProcessor::noiseFloorDb(p, first, last);
+
+    const bool ok = std::isfinite(noiseFloorDb_);
+    noiseLine_->setVisible(ok);
+    if (!ok) return;
+    noiseLine_->start->setCoords(r.lower, noiseFloorDb_);
+    noiseLine_->end->setCoords  (r.upper, noiseFloorDb_);
+}
+
+void RadioMonitorPage::visibleBinRange(int& first, int& last) const {
+    const QVector<double>& f = traces_.freqMHz();
+    const QCPRange r = fftPlot_->xAxis->range();
+    first = static_cast<int>(std::lower_bound(f.cbegin(), f.cend(), r.lower) - f.cbegin());
+    last  = static_cast<int>(std::upper_bound(f.cbegin(), f.cend(), r.upper) - f.cbegin()) - 1;
+}
+
+// ---------------------------------------------------------------------------
+// Маркеры (8.3)
+// ---------------------------------------------------------------------------
+void RadioMonitorPage::markerPress(double mhz) {
+    const int hit = markers_->nearest(mhz, hitToleranceMHz());
+    if (hit >= 0) {
+        markers_->setActive(hit);
+    } else {
+        const auto kind = static_cast<SpectrumTraces::Kind>(markerKindCombo_->currentIndex());
+        if (markers_->add(mhz, kind) < 0)                  // лимит — переставляем активный
+            markers_->setFreq(markers_->active(), mhz);
+    }
+    markerDrag_ = true;
+    syncMarkerCombo();
+    refreshMarkers();
+}
+
+void RadioMonitorPage::markerPeak(bool next) {
+    if (!markers_ || traces_.freqMHz().isEmpty()) return;
+    int first = 0, last = -1;
+    visibleBinRange(first, last);
+
+    int m = markers_->active();
+    const auto kind = m >= 0 ? markers_->kind(m)
+                             : static_cast<SpectrumTraces::Kind>(markerKindCombo_->currentIndex());
+    const QVector<double>& p = traces_.trace(kind);
+    int bin = -1;
+    if (m < 0 || !next)
+        bin = SpectrumPeaks::peakIndex(p, first, last);
+    else if (std::isfinite(markers_->levelDb(m)))
+        bin = SpectrumPeaks::nextPeakIndex(p, first, last, markers_->levelDb(m));
+    if (bin < 0) return;
+
+    const double mhz = traces_.freqMHz()[bin];
+    if (m < 0) markers_->add(mhz, kind);
+    else       markers_->setFreq(m, mhz);
+    syncMarkerCombo();
+    refreshMarkers();
+}
+
+void RadioMonitorPage::syncMarkerCombo() {
+    if (!markerKindCombo_ || markers_->active() < 0) return;
+    const QSignalBlocker block(markerKindCombo_);
+    markerKindCombo_->setCurrentIndex(markers_->kind(markers_->active()));
+}
+
+void RadioMonitorPage::refreshMarkers() {
+    markers_->refresh(traces_);
+    if (markerDeltaBtn_ && markerDeltaBtn_->isChecked() != (markers_->deltaRef() >= 0)) {
+        const QSignalBlocker block(markerDeltaBtn_);   // опорный удалён / нет маркеров
+        markerDeltaBtn_->setChecked(markers_->deltaRef() >= 0);
+    }
+    fftDirty_ = true;
+}
+
+void RadioMonitorPage::applyTraceSettings() {
+    traces_.setAverageAlpha(1.0 / traceSettings_.averageFrames);
+    if (!fftPlot_ || fftPlot_->graphCount() < SpectrumTraces::kKindCount) return;
+    for (int k = 0; k < SpectrumTraces::kKindCount; ++k) {
+        auto* g = fftPlot_->graph(k);
+        g->setVisible(traceSettings_.visible[k]);
+        // Скрытые Max/Min/Avg не обновляются в onFftReady — убираем устаревшие
+        // данные, чтобы при включении не мелькала старая кривая.
+        if (k != SpectrumTraces::Live && !traceSettings_.visible[k]) g->data()->clear();
+    }
     fftDirty_ = true;
 }
 

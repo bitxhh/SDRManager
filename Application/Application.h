@@ -33,7 +33,6 @@
 #include "../Core/IDeviceManager.h"
 #include "../Hardware/DeviceController.h"
 #include "RxController.h"
-#include "ChannelPanel.h"
 #include "SessionManager.h"
 
 class TxController;

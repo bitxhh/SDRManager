@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 #include <unordered_map>
@@ -97,16 +98,33 @@ CachedPlan& getPlan(int fftSize) {
     return entry;
 }
 
-// Hann window coefficients — float, cached per size alongside the plan.
-const std::vector<float>& getHannWindow(int n) {
-    thread_local std::unordered_map<int, std::vector<float>> wCache;
-    auto& w = wCache[n];
-    if (static_cast<int>(w.size()) != n) {
-        w.resize(n);
-        for (int i = 0; i < n; ++i)
-            w[i] = 0.5f * (1.0f - std::cos(static_cast<float>(2.0 * kPi * i / (n - 1))));
+// Hann window coefficients plus the sums normalization needs — float, cached
+// per size alongside the plan.
+struct Window {
+    std::vector<float> w;
+    double sum      = 0.0;   // Σw     — coherent gain
+    double enbwBins = 1.0;   // N·Σw²/(Σw)² — equivalent noise bandwidth
+};
+
+const Window& getHannWindow(int n) {
+    thread_local std::unordered_map<int, Window> wCache;
+    auto& win = wCache[n];
+    if (static_cast<int>(win.w.size()) != n) {
+        win.w.resize(n);
+        double sum = 0.0, sumSq = 0.0;
+        for (int i = 0; i < n; ++i) {
+            // n == 1 would divide by zero; a single sample gets weight 1
+            const float v = (n > 1)
+                ? 0.5f * (1.0f - std::cos(static_cast<float>(2.0 * kPi * i / (n - 1))))
+                : 1.0f;
+            win.w[i] = v;
+            sum   += v;
+            sumSq += static_cast<double>(v) * v;
+        }
+        win.sum      = sum;
+        win.enbwBins = n * sumSq / (sum * sum);
     }
-    return w;
+    return win;
 }
 
 } // namespace
@@ -124,7 +142,8 @@ FftFrame FftProcessor::process(const float* iq, int count,
     const int fftSize = count;
 
     auto& cp     = getPlan(fftSize);
-    auto& window = getHannWindow(fftSize);
+    const auto& win    = getHannWindow(fftSize);
+    const auto& window = win.w;
 
     // ── Fill input buffer — data already normalized to [-1, 1] ──────────────
     for (int i = 0; i < fftSize; ++i) {
@@ -142,13 +161,13 @@ FftFrame FftProcessor::process(const float* iq, int count,
     frame.powerDb.resize(fftSize);
 
     const double binWidthHz   = sampleRateHz / static_cast<double>(fftSize);
+    frame.binHz    = binWidthHz;
+    frame.enbwBins = win.enbwBins;
     const double startFreqMHz = centerFreqMHz - (sampleRateHz / 2.0) / 1e6;
 
     // Coherent normalization: divide by sum(window)^2 so that a full-scale
     // complex sine reads 0 dBFS regardless of FFT size or window shape.
-    float winSum = 0.0f;
-    for (float w : window) winSum += w;
-    const double normSq = static_cast<double>(winSum) * static_cast<double>(winSum);
+    const double normSq = win.sum * win.sum;
 
     for (int k = 0; k < fftSize; ++k) {
         // FFT-shift: map output bin index to "DC-centred" display index
@@ -161,4 +180,28 @@ FftFrame FftProcessor::process(const float* iq, int count,
     }
 
     return frame;
+}
+
+double FftProcessor::bandPowerDb(const FftFrame& frame, int first, int last)
+{
+    first = std::max(first, 0);
+    last  = std::min(last, static_cast<int>(frame.powerDb.size()) - 1);
+    double sum = 0.0;
+    for (int k = first; k <= last; ++k)
+        sum += std::pow(10.0, frame.powerDb[k] / 10.0);
+    return 10.0 * std::log10(sum / frame.enbwBins + kEps);
+}
+
+double FftProcessor::noiseFloorDb(const QVector<double>& powerDb, int first, int last,
+                                  double percentile)
+{
+    first = std::max(first, 0);
+    last  = std::min(last, static_cast<int>(powerDb.size()) - 1);
+    if (first > last) return std::numeric_limits<double>::quiet_NaN();
+
+    std::vector<double> v(powerDb.constBegin() + first, powerDb.constBegin() + last + 1);
+    const auto k = static_cast<std::size_t>(
+        std::lround(std::clamp(percentile, 0.0, 1.0) * static_cast<double>(v.size() - 1)));
+    std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(k), v.end());
+    return v[k];
 }

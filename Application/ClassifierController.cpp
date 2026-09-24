@@ -6,10 +6,20 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-ClassifierController::ClassifierController(RxController* appCtrl, QObject* parent)
+ClassifierController::ClassifierController(HandlerFn attach, HandlerFn detach, QObject* parent)
     : QObject(parent)
-    , appCtrl_(appCtrl)
+    , attach_(std::move(attach))
+    , detach_(std::move(detach))
 {}
+
+ClassifierController::ClassifierController(RxController* appCtrl, QObject* parent)
+    : ClassifierController(
+          [appCtrl](IPipelineHandler* h) { if (appCtrl) appCtrl->addExtraHandler(h); },
+          [appCtrl](IPipelineHandler* h) { if (appCtrl) appCtrl->removeExtraHandler(h); },
+          parent)
+{
+    addSlot(0);
+}
 
 ClassifierController::~ClassifierController() {
     teardown();
@@ -23,16 +33,12 @@ void ClassifierController::start(const QString& pythonExe, const QString& script
 
     LOG_INFO("ClassifierController: starting " + scriptPath.toStdString());
 
-    handler_ = new ClassifierHandler(this);
+    for (auto& [slot, s] : slots_) createHandler(slot, s);
 
     socket_ = new QTcpSocket(this);
     connect(socket_, &QTcpSocket::connected,    this, &ClassifierController::onSocketConnected);
     connect(socket_, &QTcpSocket::readyRead,    this, &ClassifierController::onSocketReadyRead);
     connect(socket_, &QTcpSocket::errorOccurred,this, &ClassifierController::onSocketError);
-
-    // Connect handler signal → socket write (cross-thread: worker → main).
-    connect(handler_, &ClassifierHandler::frameReady,
-            this,     &ClassifierController::sendFrame, Qt::QueuedConnection);
 
     process_ = new QProcess(this);
     process_->setProcessChannelMode(QProcess::MergedChannels);
@@ -49,6 +55,63 @@ void ClassifierController::start(const QString& pythonExe, const QString& script
 void ClassifierController::stop() {
     teardown();
     emit classifierStopped();
+}
+
+void ClassifierController::addSlot(int slot) {
+    if (slots_.count(slot)) return;
+    Slot& s = slots_[slot];
+    if (process_) createHandler(slot, s);
+    if (connected_ && s.handler && attach_) attach_(s.handler);
+}
+
+void ClassifierController::removeSlot(int slot) {
+    auto it = slots_.find(slot);
+    if (it == slots_.end()) return;
+    if (ClassifierHandler* h = it->second.handler) {
+        if (connected_ && detach_) detach_(h);
+        delete h;
+    }
+    slots_.erase(it);
+}
+
+void ClassifierController::setChannel(int slot, double offsetHz, double bandwidthHz) {
+    auto it = slots_.find(slot);
+    if (it == slots_.end()) return;
+    Slot& s = it->second;
+    const bool changed = s.offsetHz != offsetHz || s.bandwidthHz != bandwidthHz;
+    s.offsetHz    = offsetHz;
+    s.bandwidthHz = bandwidthHz;
+    if (s.handler) s.handler->setChannel(offsetHz, bandwidthHz);
+    if (changed) resetInterval(s);   // new station — classify it quickly
+}
+
+int ClassifierController::intervalForStreak(int stable) {
+    if (stable >= kStableForSlow) return kIntervalSlowMs;
+    if (stable >= kStableForMid)  return kIntervalMidMs;
+    return kIntervalFastMs;
+}
+
+void ClassifierController::resetInterval(Slot& s) {
+    s.lastType.clear();
+    s.stable = 0;
+    if (s.handler) s.handler->setIntervalMs(kIntervalFastMs);
+}
+
+void ClassifierController::adaptInterval(int slot, const QString& type) {
+    auto it = slots_.find(slot);
+    if (it == slots_.end()) return;
+    Slot& s = it->second;
+    if (type == s.lastType) {
+        ++s.stable;
+    } else {
+        s.lastType = type;
+        s.stable   = 0;
+    }
+    if (s.handler) s.handler->setIntervalMs(intervalForStreak(s.stable));
+}
+
+void ClassifierController::reattach() {
+    if (connected_) attachHandlers();
 }
 
 bool ClassifierController::isRunning() const {
@@ -73,12 +136,12 @@ void ClassifierController::onProcessFinished(int exitCode, QProcess::ExitStatus 
                            : QString("exited with code %1").arg(exitCode);
     LOG_WARN("ClassifierController: process " + reason.toStdString());
 
-    detachHandler();
+    detachHandlers();
 
     if (connectTimer_) { connectTimer_->stop(); connectTimer_->deleteLater(); connectTimer_ = nullptr; }
     if (socket_)       { socket_->abort(); socket_->deleteLater(); socket_ = nullptr; }
     if (process_)      { process_->deleteLater(); process_ = nullptr; }
-    if (handler_)      { handler_->deleteLater(); handler_ = nullptr; }
+    deleteHandlers(/*later=*/true);
 
     emit classifierError("Classifier service " + reason + ".");
     emit classifierStopped();
@@ -96,7 +159,8 @@ void ClassifierController::connectToService() {
 void ClassifierController::onSocketConnected() {
     LOG_INFO("ClassifierController: connected to classifier service");
     if (connectTimer_) { connectTimer_->stop(); connectTimer_->deleteLater(); connectTimer_ = nullptr; }
-    attachHandler();
+    connected_ = true;
+    attachHandlers();
     emit classifierStarted();
 }
 
@@ -107,7 +171,7 @@ void ClassifierController::onSocketError(QAbstractSocket::SocketError /*err*/) {
         LOG_WARN("ClassifierController: socket error — "
                  + socket_->errorString().toStdString());
         emit classifierError("Lost connection to classifier service.");
-        detachHandler();
+        detachHandlers();
     }
     // While connectTimer_ is running: silently retry.
 }
@@ -140,30 +204,60 @@ void ClassifierController::onSocketReadyRead() {
             continue;
         }
         const QJsonObject obj = doc.object();
+        if (obj.contains("error")) {
+            LOG_WARN("ClassifierController: service error: "
+                     + obj.value("error").toString().toStdString());
+            continue;
+        }
+        const int     slot       = obj.value("slot").toInt(0);   // absent before v3
         const QString type       = obj.value("type").toString("Unknown");
         const double  confidence = obj.value("confidence").toDouble(0.0);
-        emit classificationReady(type, confidence);
+        adaptInterval(slot, type);
+        emit classificationReady(slot, type, confidence);
     }
 }
 
 // ---------------------------------------------------------------------------
 // Handler pipeline wiring
 // ---------------------------------------------------------------------------
-void ClassifierController::attachHandler() {
-    if (handler_ && appCtrl_)
-        appCtrl_->addExtraHandler(handler_);
+void ClassifierController::createHandler(int slot, Slot& s) {
+    if (s.handler) return;
+    s.handler = new ClassifierHandler(this, slot);
+    s.handler->setChannel(s.offsetHz, s.bandwidthHz);
+    s.lastType.clear();
+    s.stable = 0;   // fresh handler starts at kIntervalFastMs
+    // Connect handler signal → socket write (cross-thread: worker → main).
+    connect(s.handler, &ClassifierHandler::frameReady,
+            this,      &ClassifierController::sendFrame, Qt::QueuedConnection);
 }
 
-void ClassifierController::detachHandler() {
-    if (handler_ && appCtrl_)
-        appCtrl_->removeExtraHandler(handler_);
+void ClassifierController::attachHandlers() {
+    if (!attach_) return;
+    for (auto& [slot, s] : slots_)
+        if (s.handler) attach_(s.handler);
+}
+
+void ClassifierController::detachHandlers() {
+    connected_ = false;
+    if (!detach_) return;
+    for (auto& [slot, s] : slots_)
+        if (s.handler) detach_(s.handler);
+}
+
+void ClassifierController::deleteHandlers(bool later) {
+    for (auto& [slot, s] : slots_) {
+        if (!s.handler) continue;
+        if (later) s.handler->deleteLater();
+        else       delete s.handler;
+        s.handler = nullptr;
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
 void ClassifierController::teardown() {
-    detachHandler();
+    detachHandlers();
 
     if (connectTimer_) { connectTimer_->stop(); delete connectTimer_; connectTimer_ = nullptr; }
 
@@ -181,5 +275,5 @@ void ClassifierController::teardown() {
             process_->kill();
     }
     delete process_; process_ = nullptr;
-    delete handler_; handler_ = nullptr;
+    deleteHandlers(/*later=*/false);
 }

@@ -1,10 +1,12 @@
 #pragma once
 
+#include "AudioProcessor.h"
 #include "DspUtils.h"
 
 #include <QVector>
 #include <cmath>
 #include <complex>
+#include <memory>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -20,6 +22,12 @@ inline constexpr int kDefaultFir2Taps = 255;
 // SSB/CW narrow channel-select decimator (replaces FIR2 in those modems).
 inline constexpr int kDefaultChanTaps = 255;
 
+// Impulse noise blanker params (common to every modem, see setCommonParam).
+inline constexpr const char* kNbThresholdKey = "NB Threshold";   // × mean |x|², 0 = off
+inline constexpr const char* kNbWidthKey     = "NB Width";       // µs
+inline constexpr double      kDefaultNbWidthUs = 20.0;
+inline constexpr double      kDefaultNbThreshold = 10.0;       // UI default when NB is enabled
+
 // User-configurable tap-count limits (odd counts only — symmetric linear phase).
 inline constexpr int kMinFirTaps = 15;
 inline constexpr int kMaxFirTaps = 1023;
@@ -27,13 +35,14 @@ inline constexpr int kMaxFirTaps = 1023;
 // ---------------------------------------------------------------------------
 // ChannelModem — common DSP pipeline for all demodulators.
 //
-//   float32 I/Q  →  DC blocker  →  NCO shift
+//   float32 I/Q  →  DC blocker  →  noise blanker (off by default)  →  NCO shift
 //              →  k × halfband ÷2 (complex, 47 taps, only non-zero taps computed)
 //              →  FIR1 LPF (complex) @ inputSR/2^k  →  decimate D1/2^k
 //              →  IF @ ~500 kHz (exactly 480 kHz when inputSR allows → 48 kHz audio)
 //              →  [virtual demodulateIF]  (every IF sample — stateful)
 //              →  FIR2 LPF (real, dot product only on output samples)
 //              →  decimate D2 = 10  →  audio @ ~48–53 kHz
+//              →  IAudioProcessor chain (in place, insertion order)
 //
 // D1 = total IF decimation (halfbands × FIR1 decimation); FIR1 designs at the
 // reduced rate, so the same tap count gives a 2^k-times narrower transition.
@@ -56,6 +65,18 @@ public:
     [[nodiscard]] double ifSampleRate()    const { return ifSR_;    }
     [[nodiscard]] int    decimation1()     const { return D1_;      }
     [[nodiscard]] double bandwidth()       const { return bandwidth_; }
+
+    // Post-demod audio chain. addAudioProcessor() calls prepare(audioSR);
+    // setOffset() resets every stage. setAudioParam() offers the param to
+    // each stage and returns true if at least one accepted it.
+    void addAudioProcessor(std::unique_ptr<IAudioProcessor> p);
+    bool setAudioParam(const QString& name, double value);
+    [[nodiscard]] int audioProcessorCount() const { return static_cast<int>(audioChain_.size()); }
+
+    // Params common to every modem (noise blanker), then the audio chain.
+    // Returns true if the name was consumed.
+    bool setCommonParam(const QString& name, double value);
+    [[nodiscard]] const dsp::NoiseBlanker& noiseBlanker() const { return nb_; }
 
 protected:
     ChannelModem(double inputSR, double stationOffsetHz,
@@ -100,11 +121,16 @@ protected:
 private:
     double stationOffset_;
     int    D2_{10};
+
+    std::vector<std::unique_ptr<IAudioProcessor>> audioChain_;
     int    fir1Taps_;
     int    fir2Taps_;
 
     // ── DSP blocks ───────────────────────────────────────────────────────────
     dsp::DcBlocker    dc_;
+    dsp::NoiseBlanker nb_;
+    double            nbThreshold_{0.0};
+    double            nbWidthUs_{kDefaultNbWidthUs};
     dsp::Nco          nco_;
 
     // ── Halfband ÷2 cascade (complex) ────────────────────────────────────────

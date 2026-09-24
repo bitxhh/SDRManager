@@ -93,7 +93,7 @@ DSP/                Signal processing
   BandpassHandler.h/.cpp     IPipelineHandler wrapper for BandpassExporter
   RawFileHandler.h/.cpp      IPipelineHandler: float32 I/Q dump (.cf32)
   AudioFileHandler.h/.cpp    Appends mono float32 audio to a WAV file
-  ClassifierHandler.h/.cpp   Forwards I/Q blocks to AI classifier (optional)
+  ClassifierHandler.h/.cpp   Channelizer (NCO → FIR → ÷D to ~2.5× channel BW) → AI classifier frames (protocol v3: + demodulator slot)
   ToneGenerator.h/.cpp       ITxSource: sinusoid I/Q generator
 
 Audio/              Audio output
@@ -111,7 +111,6 @@ Application/        UI (Qt widgets only — no DSP, no hardware calls)
   TxController.h/.cpp            Owns TxWorker + ITxSource
   ClassifierController.h/.cpp    Python subprocess + TCP socket → ClassifierHandler
   SessionManager.h/.cpp          Tracks which device IDs have open windows
-  ChannelPanel.h/.cpp            Legacy single-channel panel (kept for compatibility)
 ```
 
 ## Threading model
@@ -178,9 +177,9 @@ struct BlockMeta {
 - `addExtraHandler()` / `removeExtraHandler()` — used by `DemodulatorPanel` at runtime
 - Single-channel: same code path, `IqCombiner(1, ...)` is a pass-through
 
-**RxController** — single-channel RX (legacy / used by ChannelPanel):
+**RxController** — single-channel RX (legacy):
 - Same API surface as `CombinedRxController` but without IqCombiner
-- Kept for `ClassifierController` integration and ChannelPanel compatibility
+- Kept for `ClassifierController` integration
 
 **DemodulatorPanel** — per-demodulator UI slot (max 4):
 - Owns its own `ModemHandler`, `FmAudioOutput`, `BandpassHandler`, `AudioFileHandler`
@@ -288,5 +287,10 @@ TxController::startTx()
 
 ## Planned
 
-- AI signal classifier (ClassifierHandler already wired, Python subprocess via ClassifierController)
+- AI signal classifier: ClassifierHandler sends the tuned channel (shifted to DC, decimated; frame v3 carries channel SR,
+  VFO offset, bandwidth and demodulator slot); `classify()` in `Python/classifier_service.py` is still a stub.
+  RadioMonitorPage: "AI classifier" checkbox → one ClassifierHandler per DemodulatorPanel (slot = `slotIndex()`),
+  re-attached after every stream start; each panel shows "Classifier: TYPE N%", and "Auto mode" switches the mode
+  after `ClassificationVote` fires (3 results in a row, same type, ≥ 0.8). Python/script path: `STAND_PYTHON_EXE`,
+  `STAND_CLASSIFIER_SCRIPT`
 - ISyncController integration for dual-LimeSDR clock sync

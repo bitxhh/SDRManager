@@ -108,6 +108,7 @@ void ChannelModem::setOffset(double offsetHz) {
     dec2Counter_ = 0;
 
     resetDemodState();
+    for (auto& p : audioChain_) p->reset();
 
     LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
             std::string(modemName()) + ": offset set to "
@@ -229,6 +230,9 @@ QVector<float> ChannelModem::pushBlock(const float* iq, int count) {
         // ── 2. DC blocker ────────────────────────────────────────────────────
         s = dc_.process(s);
 
+        // ── 2a. Impulse noise blanker (wideband, before any filter smears it) ─
+        s = nb_.process(s);
+
         // ── 3. NCO frequency shift ───────────────────────────────────────────
         s = nco_.mix(s);
 
@@ -255,5 +259,36 @@ QVector<float> ChannelModem::pushBlock(const float* iq, int count) {
         produceAudio(filtered1, ifPower, audio);
     }
 
+    // ── 11. Post-demod audio chain ────────────────────────────────────────────
+    if (!audio.isEmpty())
+        for (auto& p : audioChain_) p->process(audio.data(), static_cast<int>(audio.size()));
+
     return audio;
+}
+
+// ---------------------------------------------------------------------------
+// Audio processor chain
+// ---------------------------------------------------------------------------
+void ChannelModem::addAudioProcessor(std::unique_ptr<IAudioProcessor> p) {
+    if (!p) return;
+    p->prepare(audioSR_);
+    audioChain_.push_back(std::move(p));
+}
+
+bool ChannelModem::setCommonParam(const QString& name, double value) {
+    if (name == QLatin1String(kNbThresholdKey)) {
+        nbThreshold_ = std::max(0.0, value);
+    } else if (name == QLatin1String(kNbWidthKey)) {
+        nbWidthUs_ = std::max(0.0, value);
+    } else {
+        return setAudioParam(name, value);
+    }
+    nb_.configure(inputSR_, nbThreshold_, nbWidthUs_ * 1e-6);
+    return true;
+}
+
+bool ChannelModem::setAudioParam(const QString& name, double value) {
+    bool used = false;
+    for (auto& p : audioChain_) used = p->setParam(name, value) || used;
+    return used;
 }

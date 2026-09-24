@@ -3,8 +3,12 @@
 #include "../Core/ChannelDescriptor.h"
 #include "../Core/DeviceSettings.h"
 #include "../Core/RecordingSettings.h"
+#include "../Core/SpectrumTraces.h"
 #include "../Core/WaterfallSettings.h"
 #include "../DSP/FftProcessor.h"
+#include "SpectrumMarkers.h"
+
+#include <memory>
 
 #include <QWidget>
 #include <QList>
@@ -18,6 +22,7 @@ class QSlider;
 class QPushButton;
 class QLabel;
 class QCheckBox;
+class QComboBox;
 class QVBoxLayout;
 class QThreadPool;
 
@@ -28,6 +33,7 @@ class DemodulatorPanel;
 class FrequencyDial;
 class WaterfallHandler;
 class WaterfallView;
+class ClassifierController;
 
 // ---------------------------------------------------------------------------
 // RadioMonitorPage — единая вкладка радиомониторинга.
@@ -135,6 +141,21 @@ private:
     void loadRecordingSettings();
     void saveRecordingSettings() const;
     void applyWaterfallSettings();
+    void applyTraceSettings();          // видимость graph(k) + α усреднения
+    void updateNoiseFloor();            // 20-й перцентиль Average по видимой полосе → noiseLine_
+    void visibleBinRange(int& first, int& last) const;   // бины в текущем xAxis->range()
+    // ── Маркеры (8.3) ──
+    void markerPress(double mhz);       // Ctrl+ЛКМ: выбрать/добавить/переставить
+    void markerPeak(bool next);         // Peak / Next peak на трассе активного маркера
+    void syncMarkerCombo();             // комбо трассы ← активный маркер
+    void refreshMarkers();
+
+    // AI classifier: one slot per DemodulatorPanel (slot = panel->slotIndex()).
+    void syncClassifierChannel(DemodulatorPanel* p);
+    void syncClassifierChannels();
+    void onClassifierToggled(bool on);
+    [[nodiscard]] DemodulatorPanel* panelForSlot(int slot) const;
+    [[nodiscard]] int panelPos(int slot) const;   // index in panels_, -1 if none
 
     IDevice*          device_;
     DeviceController* controller_;
@@ -152,7 +173,9 @@ private:
     // ── FFT plot ─────────────────────────────────────────────────────────────
     QCustomPlot*    fftPlot_{nullptr};
     QCPItemLine*    centerLine_{nullptr};
-    QVector<QCPItemRect*> vfoBands_;    // one per DemodulatorPanel, index = slot
+    QCPItemLine*    noiseLine_{nullptr};    // оценка шумового пола (8.6)
+    double          noiseFloorDb_{qQNaN()}; // dB/bin по видимой полосе; для squelch/детектора активности
+    QVector<QCPItemRect*> vfoBands_;    // one per DemodulatorPanel, index = position in panels_
     bool            plotUserZoomed_{false};
     bool            fftDirty_{false};
 
@@ -190,7 +213,23 @@ private:
     WaterfallView*    waterfallView_{nullptr};
     WaterfallHandler* waterfallHandler_{nullptr};
     QPushButton*      waterfallBtn_{nullptr};
+
+    // AI classifier (one ClassifierHandler per demodulator).
+    ClassifierController* classifierCtrl_{nullptr};
+    QCheckBox*            classifierCheck_{nullptr};
+    QLabel*               classifierStatus_{nullptr};
     WaterfallSettings waterfallSettings_{};
+
+    // ── Spectrum traces (Live / Max / Min / Avg) ─────────────────────────────
+    // graph(k) в fftPlot_ соответствует SpectrumTraces::Kind k.
+    SpectrumTraces        traces_;
+    SpectrumTraceSettings traceSettings_{};
+
+    // ── Markers (8.3) ────────────────────────────────────────────────────────
+    std::unique_ptr<SpectrumMarkers> markers_;
+    QComboBox*                       markerKindCombo_{nullptr};
+    QPushButton*                     markerDeltaBtn_{nullptr};   // 8.4: Δ относительно активного
+    bool                             markerDrag_{false};
 
     static constexpr int    kMaxDemods       = 4;
     static constexpr double kFreqMinMHz      =   30.0;

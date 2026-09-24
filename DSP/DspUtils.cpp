@@ -65,4 +65,30 @@ std::vector<double> designBandpassFir(int numTaps, double centerNorm,
     return h;
 }
 
+// ---------------------------------------------------------------------------
+// NoiseBlanker
+// ---------------------------------------------------------------------------
+void NoiseBlanker::configure(double sampleRateHz, double threshold, double widthSec) {
+    constexpr double kRampSec = 2e-6;    // fade in/out (= look-ahead)
+    constexpr double kAvgSec  = 5e-3;    // power average time constant
+    threshold_ = threshold;
+    ramp_  = std::max(2, static_cast<int>(std::lround(sampleRateHz * kRampSec)));
+    width_ = std::max(1, static_cast<int>(std::lround(sampleRateHz * widthSec)));
+    step_  = 1.0 / ramp_;
+    alpha_ = 1.0 / std::max(1.0, sampleRateHz * kAvgSec);
+    warmLen_ = static_cast<int>(std::lround(1.0 / alpha_));   // one time constant
+    delay_.assign(ramp_, {0.0, 0.0});
+    reset();
+}
+
+void NoiseBlanker::reset() {
+    std::fill(delay_.begin(), delay_.end(), std::complex<double>{0.0, 0.0});
+    head_ = 0;
+    hold_ = 0;
+    gain_ = 1.0;
+    avg_  = 0.0;
+    count_ = 0;
+    blanked_ = 0;
+}
+
 } // namespace dsp

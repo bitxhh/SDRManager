@@ -22,6 +22,15 @@ bool ModemHandler::isTapsParam(const QString& name) {
     return name.endsWith(QStringLiteral("taps"), Qt::CaseInsensitive);
 }
 
+std::unique_ptr<ChannelModem>
+ModemHandler::makeDemodulator(double sampleRateHz, const std::map<QString, double>& params) {
+    auto dem = createDemodulator(sampleRateHz, currentOffsetHz_, params);
+    buildAudioChain(*dem, params);
+    for (const auto& [name, value] : params)
+        dem->setCommonParam(name, value);
+    return dem;
+}
+
 void ModemHandler::setParam(const QString& name, double value) {
     std::lock_guard lock(paramMutex_);
     params_[name] = value;
@@ -46,7 +55,7 @@ void ModemHandler::onStreamStarted(double sampleRateHz) {
         pendingParams_.clear();
     }
     try {
-        dem_ = createDemodulator(sampleRateHz, currentOffsetHz_, paramsCopy);
+        dem_ = makeDemodulator(sampleRateHz, paramsCopy);
         LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
                 std::string(modemName()) + ": ready — audio SR="
                 + std::to_string(static_cast<int>(dem_->audioSampleRate())) + " Hz");
@@ -84,7 +93,7 @@ void ModemHandler::processBlock(const float* iq, int count, double sampleRateHz)
         for (const auto& [name, value] : pendingParams_) {
             if (isTapsParam(name))
                 rebuild = true;
-            else if (!rebuild)
+            else if (!rebuild && !dem_->setCommonParam(name, value))
                 applyParam(*dem_, name, value);
         }
         pendingParams_.clear();
@@ -93,7 +102,7 @@ void ModemHandler::processBlock(const float* iq, int count, double sampleRateHz)
     }
     if (rebuild) {
         try {
-            dem_ = createDemodulator(sampleRateHz, currentOffsetHz_, paramsCopy);
+            dem_ = makeDemodulator(sampleRateHz, paramsCopy);
             LOG_CAT(LogCat::kDemodInit, LogLevel::Info,
                     std::string(modemName()) + ": rebuilt for new FIR tap counts");
         } catch (const std::exception& ex) {

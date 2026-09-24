@@ -65,9 +65,43 @@ float I/Q → DC blocker (IIR HP) → NCO freq-shift
           → FM discriminator (atan2 conjugate product), gain = ifSR / (2π·maxDev)
           → FIR2 LPF (real, 255 taps, fc ≈ 4 kHz voice)
           → decimate D2=10 → audio @ 50 kHz
+          → [audio chain] DcsDetector → CtcssDetector (NfmModemHandler::buildAudioChain)
 ```
 
 Overrides `demodulateIF()` only (default `produceAudio` path).
+
+**CTCSS** (`DSP/CtcssDetector`, audio-chain stage added by `NfmModemHandler`):
+
+```
+audio → FIR LPF 400 Hz, evaluated only at decimation points → ~2 kHz
+      → Goertzel bank, 50 EIA tones 67.0–254.1 Hz, 0.4 s window (2.5 Hz bins)
+      → best bin ≥ 30 % of DC-removed window energy → detected tone
+        (held through one missed window, cleared after two)
+audio → [mute if CTCSS target ≠ 0 and |detected − target| > 1 Hz]
+      → 6th-order Butterworth HPF 300 Hz (3 RBJ biquads) — the tone is not heard
+```
+
+`NfmModemHandler::ctcssToneChanged(hz)` (worker thread) → «CTCSS: xx.x Hz» label
+in DemodulatorPanel. Tone squelch works on top of the page-level squelch.
+
+**DCS** (`DSP/DcsDetector`, audio-chain stage before CtcssDetector — the CTCSS
+300 Hz HPF would remove the DCS band):
+
+```
+audio → FIR LPF 300 Hz, evaluated only at decimation points → ~1344 Hz (10×134.4)
+      → subtract one-word (23-bit) moving average — exact DC of the NRZ stream
+      → slicer → integrate-and-dump bits, bit clock pulled to slicer edges (gain 0.1)
+      → 23-bit window vs all 23 rotations of the 104 standard codes, ≤ 2 bit errors,
+        confirmed by the previous word matching the same rotation
+      → detected code, held 0.5 s without confirmation
+audio → [mute if DCS target ≠ 0 and detected ∉ {target, invertedAlias(target)}]
+```
+
+Codeword: Golay (23,12), data `0x800 | code`, generator 0xC75, sent LSB first at
+134.4 bit/s. The complement of a codeword is a rotation of another one, so every
+inverted code is on air identical to a normal one (023I ≡ 047N); the detector
+reports the normal code, and the target also opens on its alias.
+`NfmModemHandler::dcsCodeChanged(code)` → «DCS: 047N = 023I» label in DemodulatorPanel.
 
 ### NFM parameters
 
@@ -77,6 +111,8 @@ Overrides `demodulateIF()` only (default `produceAudio` path).
 | Max deviation | ±5 kHz default | demodGain = ifSR / (2π·maxDev); clamp 1–15 kHz |
 | FIR2 cutoff | 4 kHz | Voice audio; no stereo/de-emphasis |
 | Min IF | 100 kHz | Throws below this device SR |
+| CTCSS | Off (default) / 67.0–254.1 Hz | Combo, 51 options; tone squelch target, detection runs always |
+| DCS | Off (default) / 023–754 | Combo, 105 options, value = code as octal number; code squelch target, detection runs always |
 
 ## SSB demodulation chain (USB / LSB)
 
@@ -162,6 +198,60 @@ carrier rather than a modulation sideband.
 | DC removal | IIR HP ~20 Hz | Removes carrier DC after synchronous detection |
 | Min IF | 20 kHz | |
 
+## Common stages (all modems)
+
+### Impulse noise blanker (I/Q)
+
+`dsp::NoiseBlanker` runs in `ChannelModem::pushBlock` right after the DC
+blocker, at the full input rate. At that point impulses from ignition,
+switching supplies and similar sources are still a few samples long; the
+halfbands and FIR1 would otherwise stretch them to the filter length.
+
+- The detector compares |x|² with an exponential moving average (τ = 5 ms).
+  The average is fed `min(|x|², threshold × avg)`, so impulses cannot pull it
+  up. For the first τ it is a plain running mean and does not trigger.
+- A sample above `threshold × avg` blanks the signal for `width` µs. Every
+  further hit re-arms the window.
+- The output goes through a 2 µs look-ahead delay. The gain fades to 0 over
+  those 2 µs and reaches 0 exactly when the impulse leaves the delay line,
+  then fades back in. This avoids the clicks of hard gating.
+- `threshold ≤ 0` disables the blanker. It is then a pure bypass with no
+  delay, and this is the default.
+
+| Param (`ModemHandler::setParam`) | Default | Meaning |
+|------|---------|---------|
+| `NB Threshold` (`kNbThresholdKey`) | 0 (off) | Trigger level, × mean power (typical 5–20) |
+| `NB Width` (`kNbWidthKey`) | 20 µs | Blanking window after the last hit |
+
+The test `test_noiseblanker.cpp` uses a 50 kHz tone with 3-sample impulses
+every 1 ms at 2 MS/s:
+
+- the blanker improves SNR from −5.7 dB to +16.5 dB;
+- a clean tone passes as a pure 4-sample delay with no blanking.
+
+### Audio post-processing chain (`IAudioProcessor`)
+
+`DSP/AudioProcessor.h` defines this interface for post-demod stages such as
+NR, notch or AGC. They run after FIR2 / ÷D2, in place, in insertion order, on
+every block that `pushBlock()` returns.
+
+| Method | When |
+|--------|------|
+| `prepare(audioSR)` | Once, from `ChannelModem::addAudioProcessor()` |
+| `process(float*, n)` | Every audio block, on the RxWorker thread |
+| `reset()` | On a station change (`ChannelModem::setOffset`) |
+| `setParam(name, v)` | Live parameter. Returns `true` if the stage owns the name |
+
+How a handler wires this up:
+
+- A handler adds its stages in `ModemHandler::buildAudioChain()`, which is
+  called on every (re)build of the demodulator, including a taps change.
+  After that, the whole param snapshot is replayed into the new chain.
+- For a live change, `ModemHandler::processBlock` calls
+  `ChannelModem::setCommonParam()` first. That call handles the noise-blanker
+  params and then offers the name to the audio chain. Only names nobody
+  claims reach the per-modem `applyParam()`.
+
 ## DSP building blocks (`DspUtils`)
 
 Shared primitives used by the demodulators above (all unit-tested in
@@ -176,6 +266,7 @@ Shared primitives used by the demodulators above (all unit-tested in
 | `DelayLine` | Integer-sample delay (matches Hilbert group delay) |
 | `CarrierPll` | Second-order carrier-tracking PLL (SAM synchronous detect) |
 | `Nco` | Numerically-controlled oscillator (station offset + CW BFO) |
+| `NoiseBlanker` | Impulse blanker on I/Q: power detector, look-ahead fade (tested in `test_noiseblanker.cpp`) |
 
 ## Why 500 kHz IF
 

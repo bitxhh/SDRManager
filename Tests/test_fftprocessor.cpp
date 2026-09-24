@@ -141,3 +141,86 @@ TEST_CASE("FftProcessor: signal bin is at least 20 dB above noise floor", "[fft]
     INFO("Peak: " << peakDb << " dB  Noise floor: " << noiseFloorDb << " dB  SNR: " << snrDb << " dB");
     CHECK(snrDb >= 20.0);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Metadata: binHz / ENBW and band power
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("FftProcessor: frame carries bin width and Hann ENBW", "[fft]") {
+    constexpr int    kN  = 4096;
+    constexpr double kSR = 2'000'000.0;
+
+    const QVector<float> iq = makeComplexTone(kN, kSR, 100'000.0);
+    const FftFrame frame = FftProcessor::process(iq.constData(), kN, 100.0, kSR);
+
+    CHECK_THAT(frame.binHz, Catch::Matchers::WithinRel(kSR / kN, 1e-12));
+    CHECK_THAT(frame.enbwBins, Catch::Matchers::WithinAbs(1.5, 0.01));
+    CHECK_THAT(frame.enbwHz(), Catch::Matchers::WithinRel(frame.enbwBins * kSR / kN, 1e-12));
+}
+
+TEST_CASE("FftProcessor: band power of a tone matches its amplitude", "[fft]") {
+    constexpr int    kN  = 4096;
+    constexpr double kSR = 2'000'000.0;
+    constexpr double kA  = 0.5;                       // power = 20·log10(0.5) ≈ -6.02 dBFS
+    const double expectedDb = 20.0 * std::log10(kA);
+
+    // Half-bin offset: worst-case scalloping for the peak bin (≈ -1.4 dB on
+    // Hann), which band integration must recover.
+    const double binHz = kSR / kN;
+    for (double freqHz : {250.0 * binHz, 250.5 * binHz, -123.25 * binHz}) {
+        const QVector<float> iq = makeComplexTone(kN, kSR, freqHz, kA);
+        const FftFrame frame = FftProcessor::process(iq.constData(), kN, 100.0, kSR);
+
+        const int peak = peakBin(frame);
+        const double bandDb = FftProcessor::bandPowerDb(frame, peak - 8, peak + 8);
+        INFO("freq " << freqHz << " Hz, peak bin " << frame.powerDb[peak]
+             << " dB, band " << bandDb << " dB");
+        CHECK_THAT(bandDb, Catch::Matchers::WithinAbs(expectedDb, 0.5));
+    }
+}
+
+TEST_CASE("FftProcessor: band power of white noise matches its variance", "[fft]") {
+    constexpr int    kN     = 8192;
+    constexpr double kSR    = 1'000'000.0;
+    constexpr double kSigma = 0.1;                    // per-component std dev
+    const double expectedDb = 10.0 * std::log10(2.0 * kSigma * kSigma);   // I² + Q²
+
+    // Deterministic LCG + Box–Muller — no <random> distribution variance across libs.
+    uint32_t state = 12345u;
+    auto uniform = [&] { state = state * 1664525u + 1013904223u;
+                         return (static_cast<double>(state) + 1.0) / 4294967297.0; };
+    QVector<float> iq(kN * 2);
+    for (int i = 0; i < kN; ++i) {
+        const double r = kSigma * std::sqrt(-2.0 * std::log(uniform()));
+        const double t = 2.0 * kPi * uniform();
+        iq[2 * i]     = static_cast<float>(r * std::cos(t));
+        iq[2 * i + 1] = static_cast<float>(r * std::sin(t));
+    }
+    const FftFrame frame = FftProcessor::process(iq.constData(), kN, 100.0, kSR);
+
+    const double totalDb = FftProcessor::bandPowerDb(frame, 0, kN - 1);
+    CHECK_THAT(totalDb, Catch::Matchers::WithinAbs(expectedDb, 0.5));
+
+    // Half the band carries half the power.
+    const double halfDb = FftProcessor::bandPowerDb(frame, 0, kN / 2 - 1);
+    CHECK_THAT(halfDb, Catch::Matchers::WithinAbs(expectedDb - 3.01, 0.5));
+}
+
+TEST_CASE("FftProcessor: noise floor ignores narrowband carriers", "[fft]") {
+    QVector<double> p(100, -100.0);
+    for (int i = 0; i < 100; ++i) p[i] = -100.0 + 0.01 * i;   // -100 … -99.01 dB
+    for (int i = 10; i < 30; ++i) p[i] = -20.0;               // 20 % occupied by signals
+
+    // 20th percentile of 100 bins lands on a noise bin, not a carrier.
+    const double floor = FftProcessor::noiseFloorDb(p, 0, 99);
+    CHECK(floor < -99.0);
+
+    // Median of pure noise sub-range.
+    CHECK_THAT(FftProcessor::noiseFloorDb(p, 40, 60, 0.5),
+               Catch::Matchers::WithinAbs(-100.0 + 0.01 * 50, 1e-9));
+
+    // Range is clamped to the vector; empty range gives NaN.
+    CHECK_THAT(FftProcessor::noiseFloorDb(p, -5, 200, 0.0),
+               Catch::Matchers::WithinAbs(-100.0, 1e-9));
+    CHECK(std::isnan(FftProcessor::noiseFloorDb(p, 50, 40)));
+    CHECK(std::isnan(FftProcessor::noiseFloorDb(QVector<double>{}, 0, 10)));
+}

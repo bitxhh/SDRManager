@@ -2,6 +2,7 @@
 
 #include "../Core/DeviceSettings.h"
 #include "../DSP/ChannelModem.h"
+#include "../DSP/ClassificationVote.h"
 
 #include <QWidget>
 #include <QString>
@@ -42,6 +43,10 @@ public:
     [[nodiscard]] double currentBwMHz() const;
     // No-op if the current mode has no spin-based "Bandwidth" param.
     void setBandwidthHz(double hz);
+
+    // Latest AI classifier result for this demodulator's channel. Shown in
+    // row 2; with "Auto mode" on, the mode follows once ClassificationVote fires.
+    void setClassification(const QString& type, double confidence);
 
     // Supplies everything needed to build recording filenames. Called by
     // RadioMonitorPage at stream start / settings change.
@@ -85,6 +90,8 @@ private:
     void openSettingsDialog();
     // Pushes fir1Taps_/fir2Taps_/chanTaps_ into demodHandler_ (if any).
     void pushTapsToHandler();
+    // Pushes the noise-blanker settings (threshold 0 when NB is off).
+    void pushNbToHandler();
     // True for modes whose post-demod filter is the channel decimator (SSB/CW).
     [[nodiscard]] static bool modeUsesChanTaps(const QString& mode);
 
@@ -115,6 +122,11 @@ private:
     QSlider*        volumeSlider_{nullptr};
     QLabel*         volumeLabel_{nullptr};
     QLabel*         statusLabel_{nullptr};
+    QLabel*         classLabel_{nullptr};
+    QLabel*         ctcssLabel_{nullptr};   // detected CTCSS tone (NFM only)
+    QLabel*         dcsLabel_{nullptr};     // detected DCS code (NFM only)
+    QCheckBox*      autoModeCheck_{nullptr};
+    ClassificationVote vote_;
     QPushButton*    settingsButton_{nullptr};
     QPushButton*    removeButton_{nullptr};
 
@@ -122,6 +134,11 @@ private:
     int fir1Taps_{kDefaultFir1Taps};
     int fir2Taps_{kDefaultFir2Taps};   // FM/NFM/AM/SAM
     int chanTaps_{kDefaultChanTaps};   // USB/LSB/CW
+
+    // Impulse noise blanker: toggled in row 1, threshold/width in the ⚙ dialog.
+    QCheckBox* nbCheck_{nullptr};
+    double     nbThreshold_{kDefaultNbThreshold};   // × mean |x|²
+    double     nbWidthUs_{kDefaultNbWidthUs};
 
     // ── Dynamic per-modem parameter widgets ─────────────────────────────────
     // The row is rebuilt whenever the mode changes; no modem-specific UI code.
